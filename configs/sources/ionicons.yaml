@@ -1,0 +1,28 @@
+id: ionicons
+name: Ionicons
+description: Premium designed icons for use in web, iOS, Android, and desktop apps
+type: git
+
+git:
+  repo: ionic-team/ionicons
+  branch: main
+  depth: 1
+  sparse_paths:
+    - src/svg/
+
+license:
+  spdx: MIT
+  attribution_required: false
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+
+paths:
+  - pattern: "src/svg/*.svg"
+    format: svg
+    tags: [icon, ui, ios, android]
+
+metadata:
+  homepage: https://ionic.io/ionicons
+  icon_count: 1300
+  styles: [outline, filled, sharp]

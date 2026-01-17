@@ -1,0 +1,35 @@
+id: openmoji
+name: OpenMoji
+description: Open source emojis for everyone
+type: git
+
+git:
+  repo: hfg-gmuend/openmoji
+  branch: master
+  depth: 1
+  sparse_paths:
+    - color/svg/
+    - black/svg/
+
+license:
+  spdx: CC-BY-SA-4.0
+  attribution_required: true
+  attribution_notice: "OpenMoji - CC BY-SA 4.0"
+  commercial_ok: true
+  modification_ok: true
+  share_alike: true
+
+paths:
+  - pattern: "color/svg/*.svg"
+    format: svg
+    tags: [emoji, unicode, color]
+    style: color
+  - pattern: "black/svg/*.svg"
+    format: svg
+    tags: [emoji, unicode, outline]
+    style: black
+
+metadata:
+  homepage: https://openmoji.org
+  icon_count: 4000
+  styles: [color, black]

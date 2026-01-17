@@ -1,0 +1,33 @@
+id: iconoir
+name: Iconoir
+description: An open source SVG icon library with 1500+ icons
+type: git
+
+git:
+  repo: iconoir-icons/iconoir
+  branch: main
+  depth: 1
+  sparse_paths:
+    - icons/
+
+license:
+  spdx: MIT
+  attribution_required: false
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+
+paths:
+  - pattern: "icons/regular/*.svg"
+    format: svg
+    tags: [icon, ui, outline]
+    style: regular
+  - pattern: "icons/solid/*.svg"
+    format: svg
+    tags: [icon, ui, solid]
+    style: solid
+
+metadata:
+  homepage: https://iconoir.com
+  icon_count: 1500
+  styles: [regular, solid]

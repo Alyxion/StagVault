@@ -1,0 +1,33 @@
+id: eva-icons
+name: Eva Icons
+description: A pack of more than 480 beautifully crafted Open Source icons
+type: git
+
+git:
+  repo: akveo/eva-icons
+  branch: master
+  depth: 1
+  sparse_paths:
+    - package/icons/
+
+license:
+  spdx: MIT
+  attribution_required: false
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+
+paths:
+  - pattern: "package/icons/outline/svg/*.svg"
+    format: svg
+    tags: [icon, ui, outline]
+    style: outline
+  - pattern: "package/icons/fill/svg/*.svg"
+    format: svg
+    tags: [icon, ui, fill]
+    style: fill
+
+metadata:
+  homepage: https://akveo.github.io/eva-icons
+  icon_count: 480
+  styles: [outline, fill]

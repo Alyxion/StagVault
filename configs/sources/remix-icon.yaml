@@ -1,0 +1,29 @@
+id: remix-icon
+name: Remix Icon
+description: Open source neutral style system symbols
+type: git
+
+git:
+  repo: Remix-Design/RemixIcon
+  branch: master
+  depth: 1
+  sparse_paths:
+    - icons/
+
+license:
+  spdx: Apache-2.0
+  attribution_required: true
+  attribution_notice: "Remix Icon - Apache 2.0"
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+
+paths:
+  - pattern: "icons/**/*.svg"
+    format: svg
+    tags: [icon, ui]
+
+metadata:
+  homepage: https://remixicon.com
+  icon_count: 2800
+  categories: [Buildings, Business, Communication, Design, Development, Device, Document, Editor, Finance, Health, Logos, Map, Media, Others, System, User, Weather]

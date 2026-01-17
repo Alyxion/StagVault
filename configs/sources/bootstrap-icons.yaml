@@ -1,0 +1,28 @@
+id: bootstrap-icons
+name: Bootstrap Icons
+description: Official open source SVG icon library for Bootstrap
+type: git
+
+git:
+  repo: twbs/icons
+  branch: main
+  depth: 1
+  sparse_paths:
+    - icons/
+
+license:
+  spdx: MIT
+  attribution_required: false
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+
+paths:
+  - pattern: "icons/*.svg"
+    format: svg
+    tags: [icon, ui, bootstrap]
+
+metadata:
+  homepage: https://icons.getbootstrap.com
+  icon_count: 2000
+  styles: [outline, fill]

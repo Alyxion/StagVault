@@ -1,0 +1,28 @@
+id: simple-icons
+name: Simple Icons
+description: SVG icons for popular brands
+type: git
+
+git:
+  repo: simple-icons/simple-icons
+  branch: develop
+  depth: 1
+  sparse_paths:
+    - icons/
+
+license:
+  spdx: CC0-1.0
+  attribution_required: false
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+
+paths:
+  - pattern: "icons/*.svg"
+    format: svg
+    tags: [icon, brand, logo]
+
+metadata:
+  homepage: https://simpleicons.org
+  icon_count: 3000
+  category: brands

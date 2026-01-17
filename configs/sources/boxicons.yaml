@@ -1,0 +1,37 @@
+id: boxicons
+name: Boxicons
+description: High quality web icons set with 1600+ icons
+type: git
+
+git:
+  repo: atisawd/boxicons
+  branch: master
+  depth: 1
+  sparse_paths:
+    - svg/
+
+license:
+  spdx: MIT
+  attribution_required: false
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+
+paths:
+  - pattern: "svg/regular/*.svg"
+    format: svg
+    tags: [icon, ui, regular]
+    style: regular
+  - pattern: "svg/solid/*.svg"
+    format: svg
+    tags: [icon, ui, solid]
+    style: solid
+  - pattern: "svg/logos/*.svg"
+    format: svg
+    tags: [icon, brand, logo]
+    style: logos
+
+metadata:
+  homepage: https://boxicons.com
+  icon_count: 1600
+  styles: [regular, solid, logos]

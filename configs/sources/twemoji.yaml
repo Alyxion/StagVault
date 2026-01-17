@@ -1,0 +1,29 @@
+id: twemoji
+name: Twemoji
+description: Twitter/X emoji with full Unicode coverage
+type: git
+
+git:
+  repo: twitter/twemoji
+  branch: master
+  depth: 1
+  sparse_paths:
+    - assets/svg/
+
+license:
+  spdx: CC-BY-4.0
+  attribution_required: true
+  attribution_notice: "Twemoji by Twitter - CC BY 4.0"
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+
+paths:
+  - pattern: "assets/svg/*.svg"
+    format: svg
+    tags: [emoji, unicode]
+
+metadata:
+  homepage: https://twemoji.twitter.com
+  coverage: full-unicode
+  size_estimate_mb: 30

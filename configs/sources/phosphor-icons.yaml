@@ -1,0 +1,49 @@
+id: phosphor-icons
+name: Phosphor Icons
+description: A flexible icon family for interfaces, diagrams, presentations
+type: git
+
+git:
+  repo: phosphor-icons/core
+  branch: main
+  depth: 1
+  sparse_paths:
+    - assets/
+
+license:
+  spdx: MIT
+  attribution_required: false
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+
+paths:
+  - pattern: "assets/bold/*.svg"
+    format: svg
+    tags: [icon, ui, bold]
+    weight: bold
+  - pattern: "assets/duotone/*.svg"
+    format: svg
+    tags: [icon, ui, duotone]
+    weight: duotone
+  - pattern: "assets/fill/*.svg"
+    format: svg
+    tags: [icon, ui, fill]
+    weight: fill
+  - pattern: "assets/light/*.svg"
+    format: svg
+    tags: [icon, ui, light]
+    weight: light
+  - pattern: "assets/regular/*.svg"
+    format: svg
+    tags: [icon, ui, regular]
+    weight: regular
+  - pattern: "assets/thin/*.svg"
+    format: svg
+    tags: [icon, ui, thin]
+    weight: thin
+
+metadata:
+  homepage: https://phosphoricons.com
+  icon_count: 9000
+  styles: [thin, light, regular, bold, fill, duotone]

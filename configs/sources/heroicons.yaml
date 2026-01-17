@@ -1,0 +1,46 @@
+id: heroicons
+name: Heroicons
+description: Beautiful hand-crafted SVG icons by the makers of Tailwind CSS
+type: git
+
+git:
+  repo: tailwindlabs/heroicons
+  branch: master
+  depth: 1
+  sparse_paths:
+    - src/
+
+license:
+  spdx: MIT
+  attribution_required: false
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+
+paths:
+  - pattern: "src/24/outline/*.svg"
+    format: svg
+    tags: [icon, ui, outline]
+    size: 24
+    style: outline
+  - pattern: "src/24/solid/*.svg"
+    format: svg
+    tags: [icon, ui, solid]
+    size: 24
+    style: solid
+  - pattern: "src/20/solid/*.svg"
+    format: svg
+    tags: [icon, ui, solid, small]
+    size: 20
+    style: solid
+  - pattern: "src/16/solid/*.svg"
+    format: svg
+    tags: [icon, ui, solid, mini]
+    size: 16
+    style: solid
+
+metadata:
+  homepage: https://heroicons.com
+  icon_count: 450
+  styles: [outline, solid]
+  sizes: [16, 20, 24]

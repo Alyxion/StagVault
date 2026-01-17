@@ -1,0 +1,33 @@
+id: octicons
+name: Octicons
+description: GitHub's icon set
+type: git
+
+git:
+  repo: primer/octicons
+  branch: main
+  depth: 1
+  sparse_paths:
+    - icons/
+
+license:
+  spdx: MIT
+  attribution_required: false
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+
+paths:
+  - pattern: "icons/*-16.svg"
+    format: svg
+    tags: [icon, ui, github]
+    size: 16
+  - pattern: "icons/*-24.svg"
+    format: svg
+    tags: [icon, ui, github]
+    size: 24
+
+metadata:
+  homepage: https://primer.style/foundations/icons
+  icon_count: 600
+  sizes: [16, 24]

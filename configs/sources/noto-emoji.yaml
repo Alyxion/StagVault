@@ -1,0 +1,29 @@
+id: noto-emoji
+name: Noto Emoji
+description: Google's emoji set with full Unicode coverage
+type: git
+
+git:
+  repo: googlefonts/noto-emoji
+  branch: main
+  depth: 1
+  sparse_paths:
+    - svg/
+
+license:
+  spdx: OFL-1.1
+  attribution_required: false
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+  notes: "Cannot sell font files alone"
+
+paths:
+  - pattern: "svg/*.svg"
+    format: svg
+    tags: [emoji, unicode]
+
+metadata:
+  homepage: https://fonts.google.com/noto/specimen/Noto+Color+Emoji
+  coverage: full-unicode
+  size_estimate_mb: 50

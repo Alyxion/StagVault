@@ -1,0 +1,29 @@
+id: material-design
+name: Material Design Icons (Community)
+description: Extended community version of Google's Material Design Icons
+type: git
+
+git:
+  repo: Templarian/MaterialDesign
+  branch: master
+  depth: 1
+  sparse_paths:
+    - svg/
+
+license:
+  spdx: Apache-2.0
+  attribution_required: true
+  attribution_notice: "Material Design Icons by Pictogrammers - Apache 2.0"
+  commercial_ok: true
+  modification_ok: true
+  share_alike: false
+
+paths:
+  - pattern: "svg/*.svg"
+    format: svg
+    tags: [icon, ui, material]
+
+metadata:
+  homepage: https://pictogrammers.com/library/mdi/
+  icon_count: 7000
+  styles: [filled]
