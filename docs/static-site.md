@@ -136,18 +136,58 @@ The filtering logic MUST behave identically between:
 
 This parity is enforced by the test suite running identical queries in all three modes (Python, REST, Static).
 
-## Building the Static Index
+## Building the Static Site
+
+### Prerequisites
+
+Before building the static site, you need:
+
+1. **Synced data**: Download source files
+   ```bash
+   poetry run stagvault sync
+   ```
+
+2. **Built index**: Create search database
+   ```bash
+   poetry run stagvault index
+   ```
+
+3. **Generated thumbnails** (optional): Create preview images
+   ```bash
+   poetry run stagvault thumbnails generate
+   ```
+
+### Build Commands
 
 ```bash
-# Build static index with thumbnails
-stagvault static build --output ./static_site/index
+# Quick build (no thumbnails - icons won't show preview images)
+poetry run stagvault static build --output ./static_site/index
 
-# Build without thumbnails (faster)
-stagvault static build --output ./static_site/index --no-thumbnails
+# Full build with thumbnails (recommended)
+poetry run stagvault static build --output ./static_site/index --thumbnails
 
-# Build for specific sources only
-stagvault static build --output ./static_site/index --source phosphor-icons --source lucide
+# Or use the convenience script
+./scripts/build_static.sh           # Quick build
+./scripts/build_static.sh --thumbs  # With existing thumbnails
+./scripts/build_static.sh --full    # Generate thumbnails + build
 ```
+
+### Source Files
+
+The web application source files are tracked in git:
+- `stagvault/static/web/app.js` - JavaScript application
+- `stagvault/static/web/index.html` - HTML template
+
+These are automatically copied to the output directory during build.
+
+### Generated Files (gitignored)
+
+The entire `static_site/` directory is generated and gitignored:
+- `static_site/index/app.js` - Copied from source
+- `static_site/index/index.html` - Copied from source
+- `static_site/index/index/*.json` - Generated index files
+- `static_site/index/index/search/*.json` - Generated search files
+- `static_site/index/thumbs/` - Generated thumbnails
 
 ## Serving the Static Site
 
