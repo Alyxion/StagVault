@@ -16,6 +16,10 @@ class StagVault {
         this.currentResults = [];
         this.allLoadedItems = [];
         this.searchDebounceTimer = null;
+        this.apiSearchDebounceTimer = null;
+        this.currentSearchId = 0; // Track search requests to handle race conditions
+        this.apiCache = new Map(); // In-memory cache for API responses
+        this.API_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in ms
 
         // Filter state - these track EXCLUDED items (unchecked = excluded)
         this.excludedSources = new Set();
@@ -26,7 +30,13 @@ class StagVault {
 
         // Modal state
         this.currentItem = null;
-        this.zoomLevel = 3;
+        this.zoomPercent = 100;
+        this.fitZoomPercent = 100; // Calculated zoom to fit container
+        this.panX = 0;
+        this.panY = 0;
+        this.isPanning = false;
+        this.panStartX = 0;
+        this.panStartY = 0;
         this.colorizeEnabled = false;
         this.primaryColor = '#e94560';
         this.secondaryColor = '#ffffff';
@@ -60,6 +70,53 @@ class StagVault {
                 '_sources': ['unsplash', 'pexels', 'pixabay'],
             },
         };
+
+        // API provider configuration
+        this.apiProviders = {
+            pexels: {
+                name: 'Pexels',
+                apiKey: null,
+                enabled: false,
+                baseUrl: 'https://api.pexels.com/v1',
+                searchEndpoint: '/search',
+                rateLimit: { remaining: 200, reset: null },
+                licenses: ['Pexels License']
+            },
+            pixabay: {
+                name: 'Pixabay',
+                apiKey: null,
+                enabled: false,
+                baseUrl: 'https://pixabay.com/api',
+                rateLimit: { remaining: 100, reset: null },
+                licenses: ['Pixabay License']
+            },
+            unsplash: {
+                name: 'Unsplash',
+                apiKey: null,
+                enabled: false,
+                baseUrl: 'https://api.unsplash.com',
+                searchEndpoint: '/search/photos',
+                rateLimit: { remaining: 50, reset: null },
+                licenses: ['Unsplash License']
+            },
+            wikimedia: {
+                name: 'Wikimedia Commons',
+                apiKey: null, // No key required
+                enabled: true, // Enabled by default
+                baseUrl: 'https://commons.wikimedia.org/w/api.php',
+                rateLimit: { remaining: 100, reset: null },
+                licenses: ['CC0', 'CC-BY', 'CC-BY-SA', 'CC-BY-SA-4.0', 'CC-BY-4.0', 'Public domain', 'GFDL']
+            }
+        };
+
+        // Track dynamically discovered licenses from API results
+        this.discoveredLicenses = new Set();
+
+        // Load API keys from localStorage
+        this.loadApiKeys();
+
+        // Load API cache from localStorage
+        this.loadApiCache();
 
         this.init();
     }
@@ -103,9 +160,30 @@ class StagVault {
     }
 
     populateSidebar() {
+        this.addApiSourcesToTree();
         this.renderSourcesTree();
         this.renderLicenses();
         // Categories are filtered via search word, not sidebar
+    }
+
+    addApiSourcesToTree() {
+        // Add enabled API providers as sources
+        for (const [providerId, config] of Object.entries(this.apiProviders)) {
+            if (config.enabled && (providerId === 'wikimedia' || config.apiKey)) {
+                // Check if source already exists
+                if (!this.sources.find(s => s.id === providerId)) {
+                    this.sources.push({
+                        id: providerId,
+                        name: config.name,
+                        count: 0, // Dynamic, unknown count
+                        license: config.licenses[0] || 'Various',
+                        _isApi: true
+                    });
+                }
+                // Add known licenses for this provider
+                config.licenses.forEach(lic => this.discoveredLicenses.add(lic));
+            }
+        }
     }
 
     renderSourcesTree() {
@@ -414,33 +492,68 @@ class StagVault {
     renderLicenses() {
         const licenseCounts = new Map();
 
+        // Count from static sources
         this.sources.forEach(source => {
             const lic = source.license || 'Unknown';
             licenseCounts.set(lic, (licenseCounts.get(lic) || 0) + source.count);
         });
 
+        // Add from licenses.json
         this.licenses.forEach(l => {
             if (!licenseCounts.has(l.type)) {
                 licenseCounts.set(l.type, l.count);
             }
         });
 
+        // Add discovered licenses from API results (with 0 count initially)
+        this.discoveredLicenses.forEach(lic => {
+            if (!licenseCounts.has(lic)) {
+                licenseCounts.set(lic, 0);
+            }
+        });
+
         const container = document.getElementById('licensesList');
         container.innerHTML = Array.from(licenseCounts.entries())
-            .sort((a, b) => b[1] - a[1])
+            .sort((a, b) => {
+                // Sort by count descending, but keep 0-count items at the end
+                if (a[1] === 0 && b[1] > 0) return 1;
+                if (b[1] === 0 && a[1] > 0) return -1;
+                return b[1] - a[1];
+            })
             .map(([license, count]) => {
                 const isChecked = !this.excludedLicenses.has(license);
                 const safeId = license.replace(/[^a-zA-Z0-9-_]/g, '_');
+                const countDisplay = count > 0 ? count.toLocaleString() : 'API';
                 return `
                     <div class="filter-item${isChecked ? '' : ' excluded'}" data-id="${license}" data-type="license">
                         <input type="checkbox" id="license-${safeId}" ${isChecked ? 'checked' : ''}>
                         <label for="license-${safeId}">${this.escapeHtml(license)}</label>
-                        <span class="filter-count" data-license="${license}">${count.toLocaleString()}</span>
+                        <span class="filter-count" data-license="${license}">${countDisplay}</span>
                     </div>
                 `;
             }).join('');
 
         this.attachFilterHandlers('licensesList', 'license', this.excludedLicenses);
+    }
+
+    // Called when API results contain new licenses
+    addDiscoveredLicense(license) {
+        if (!license || this.discoveredLicenses.has(license)) return false;
+        this.discoveredLicenses.add(license);
+        return true;
+    }
+
+    // Update sidebar when new licenses are discovered
+    refreshLicensesIfNeeded(items) {
+        let needsRefresh = false;
+        for (const item of items) {
+            if (item.l && this.addDiscoveredLicense(item.l)) {
+                needsRefresh = true;
+            }
+        }
+        if (needsRefresh) {
+            this.renderLicenses();
+        }
     }
 
     attachFilterHandlers(containerId, type, excludedSet) {
@@ -561,8 +674,22 @@ class StagVault {
             if (e.target === modalOverlay) this.closeModal();
         });
 
-        document.getElementById('zoomIn').addEventListener('click', () => this.setZoom(this.zoomLevel + 1));
-        document.getElementById('zoomOut').addEventListener('click', () => this.setZoom(this.zoomLevel - 1));
+        document.getElementById('zoomIn').addEventListener('click', () => this.zoomIn());
+        document.getElementById('zoomOut').addEventListener('click', () => this.zoomOut());
+        document.getElementById('zoomFit').addEventListener('click', () => this.zoomToFit());
+
+        // SVG size preset buttons
+        document.querySelectorAll('.svg-size-btn').forEach(btn => {
+            btn.addEventListener('click', () => this.setSvgSize(parseInt(btn.dataset.size)));
+        });
+
+        // Pan/drag support for preview image
+        const previewContainer = document.getElementById('previewContainer');
+        previewContainer.addEventListener('mousedown', (e) => this.startPan(e));
+        previewContainer.addEventListener('mousemove', (e) => this.doPan(e));
+        previewContainer.addEventListener('mouseup', () => this.endPan());
+        previewContainer.addEventListener('mouseleave', () => this.endPan());
+        previewContainer.addEventListener('wheel', (e) => this.handleWheel(e), { passive: false });
 
         document.getElementById('colorizeToggle').addEventListener('change', (e) => {
             this.colorizeEnabled = e.target.checked;
@@ -581,15 +708,24 @@ class StagVault {
         });
 
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') this.closeModal();
+            if (e.key === 'Escape') {
+                this.closeModal();
+                this.closeSettings();
+            }
             if (e.key === '/' && document.activeElement !== searchInput) {
                 e.preventDefault();
                 searchInput.focus();
             }
             if (this.currentItem) {
-                if (e.key === '+' || e.key === '=') this.setZoom(this.zoomLevel + 1);
-                if (e.key === '-') this.setZoom(this.zoomLevel - 1);
+                if (e.key === '+' || e.key === '=') this.zoomIn();
+                if (e.key === '-') this.zoomOut();
+                if (e.key === '0') this.zoomToFit();
             }
+        });
+
+        // Close settings modal when clicking outside
+        document.getElementById('settingsModal').addEventListener('click', (e) => {
+            if (e.target.id === 'settingsModal') this.closeSettings();
         });
     }
 
@@ -678,10 +814,20 @@ class StagVault {
     async performSearch() {
         const query = document.getElementById('searchInput').value.trim().toLowerCase();
 
+        // Cancel any pending API search
+        if (this.apiSearchDebounceTimer) {
+            clearTimeout(this.apiSearchDebounceTimer);
+            this.apiSearchDebounceTimer = null;
+        }
+
         if (query.length < 2) {
+            this.currentSearchId++;
             await this.loadAndDisplaySamples();
             return;
         }
+
+        // Increment search ID to track this search request
+        const searchId = ++this.currentSearchId;
 
         document.getElementById('resultsContainer').innerHTML = `
             <div class="loading">
@@ -691,48 +837,90 @@ class StagVault {
         `;
 
         try {
-            const prefix = query.substring(0, 2);
-            const prefixEntry = this.prefixManifest.find(p => p.prefix === prefix);
+            // First, get static results immediately
+            const staticResults = await this.searchStaticIndex(query);
 
-            if (!prefixEntry) {
-                this.showNoResults(query);
-                return;
-            }
+            // Check if this search is still current
+            if (searchId !== this.currentSearchId) return;
 
-            let items = this.prefixCache.get(prefix);
-            if (!items) {
-                items = await this.fetchJSON(`${this.indexBase}/search/${prefix}.json`);
-                this.prefixCache.set(prefix, items);
-
-                items.forEach(item => {
-                    if (!this.allLoadedItems.find(i => i.id === item.id)) {
-                        this.allLoadedItems.push(item);
-                    }
-                });
-            }
-
-            // Filter by query
-            let results = items.filter(item => {
-                const name = item.n.toLowerCase();
-                const tags = (item.t || []).map(t => t.toLowerCase());
-                const matchesName = name.includes(query);
-                const matchesTag = tags.some(t => t.includes(query) || t === query);
-                return matchesName || matchesTag;
-            });
-
-            // Apply sidebar filters
-            results = this.applyFilters(results);
-
-            // Rank results
-            results = this.rankResults(results, query);
-
+            // Display static results immediately
+            let results = this.rankResults([...staticResults], query);
             this.currentResults = results;
-            this.displayResults(results, query);
+            this.displayResults(results, query, true); // true = API search pending
+
+            // Schedule API search after user stops typing (800ms delay)
+            const enabledProviders = this.getEnabledProviders();
+            if (enabledProviders.length > 0) {
+                this.apiSearchDebounceTimer = setTimeout(async () => {
+                    // Check if this search is still current
+                    if (searchId !== this.currentSearchId) return;
+
+                    try {
+                        const apiResults = await this.searchApiProviders(query);
+
+                        // Check again after API call completes
+                        if (searchId !== this.currentSearchId) return;
+
+                        // Discover new licenses from API results
+                        this.refreshLicensesIfNeeded(apiResults);
+
+                        // Apply filters to API results too
+                        const filteredApiResults = this.applyFilters(apiResults);
+
+                        // Merge and re-rank all results
+                        const mergedResults = [...staticResults, ...filteredApiResults];
+                        const rankedResults = this.rankResults(mergedResults, query);
+
+                        this.currentResults = rankedResults;
+                        this.displayResults(rankedResults, query, false); // false = API search complete
+                    } catch (error) {
+                        console.error('API search failed:', error);
+                        // Keep showing static results on API error
+                    }
+                }, 800); // 800ms delay for API search
+            }
 
         } catch (error) {
             console.error('Search failed:', error);
-            this.showError('Search failed. Please try again.');
+            if (searchId === this.currentSearchId) {
+                this.showError('Search failed. Please try again.');
+            }
         }
+    }
+
+    async searchStaticIndex(query) {
+        const prefix = query.substring(0, 2);
+        const prefixEntry = this.prefixManifest.find(p => p.prefix === prefix);
+
+        if (!prefixEntry) {
+            return [];
+        }
+
+        let items = this.prefixCache.get(prefix);
+        if (!items) {
+            items = await this.fetchJSON(`${this.indexBase}/search/${prefix}.json`);
+            this.prefixCache.set(prefix, items);
+
+            items.forEach(item => {
+                if (!this.allLoadedItems.find(i => i.id === item.id)) {
+                    this.allLoadedItems.push(item);
+                }
+            });
+        }
+
+        // Filter by query
+        let results = items.filter(item => {
+            const name = item.n.toLowerCase();
+            const tags = (item.t || []).map(t => t.toLowerCase());
+            const matchesName = name.includes(query);
+            const matchesTag = tags.some(t => t.includes(query) || t === query);
+            return matchesName || matchesTag;
+        });
+
+        // Apply sidebar filters
+        results = this.applyFilters(results);
+
+        return results;
     }
 
     rankResults(results, query) {
@@ -772,12 +960,21 @@ class StagVault {
         return score;
     }
 
-    displayResults(results, query) {
+    displayResults(results, query, apiPending = false) {
         const container = document.getElementById('resultsContainer');
 
+        // Count static vs API results
+        const staticCount = results.filter(r => !r._apiItem).length;
+        const apiCount = results.filter(r => r._apiItem).length;
+
         if (query) {
-            document.getElementById('statsText').innerHTML =
-                `Found <strong>${results.length.toLocaleString()}</strong> icons for "${this.escapeHtml(query)}"`;
+            let statsText = `Found <strong>${results.length.toLocaleString()}</strong> results for "${this.escapeHtml(query)}"`;
+            if (apiCount > 0) {
+                statsText += ` <span style="opacity: 0.7">(${staticCount} icons + ${apiCount} from APIs)</span>`;
+            } else if (apiPending && this.getEnabledProviders().length > 0) {
+                statsText += ` <span style="opacity: 0.7">— searching APIs...</span>`;
+            }
+            document.getElementById('statsText').innerHTML = statsText;
         } else {
             const hasExclusions = this.excludedSources.size + this.excludedLicenses.size > 0;
             if (hasExclusions) {
@@ -814,11 +1011,11 @@ class StagVault {
     }
 
     renderCard(item, index) {
-        const source = this.sources.find(s => s.id === item.s);
-        const sourceName = source ? source.name : item.s;
+        const sourceName = this.getSourceDisplayName(item.s);
+        const isApiItem = item._apiItem === true;
 
         const iconHtml = item.p
-            ? `<img src="${item.p}" alt="${this.escapeHtml(item.n)}" loading="lazy">`
+            ? `<img src="${item.p}" alt="${this.escapeHtml(item.n)}" loading="lazy" onerror="this.style.display='none';this.parentElement.classList.add('placeholder')">`
             : `<div class="placeholder"></div>`;
 
         const tags = (item.t || []).slice(0, 3);
@@ -827,7 +1024,7 @@ class StagVault {
             : '';
 
         return `
-            <div class="result-card" data-index="${index}">
+            <div class="result-card${isApiItem ? ' api-result' : ''}" data-index="${index}">
                 <div class="result-icon">${iconHtml}</div>
                 <div class="result-name">${this.escapeHtml(item.n)}</div>
                 <div class="result-meta">${this.escapeHtml(sourceName)}${item.y ? ` / ${this.escapeHtml(item.y)}` : ''}</div>
@@ -857,35 +1054,86 @@ class StagVault {
 
     showModal(item) {
         this.currentItem = item;
-        this.zoomLevel = 3;
+        this.zoomPercent = 100; // Will be recalculated on image load
+        this.fitZoomPercent = 100;
+        this.panX = 0;
+        this.panY = 0;
         this.colorizeEnabled = false;
         this.colorMode = this.getColorMode(item);
 
         const source = this.sources.find(s => s.id === item.s);
-        const sourceName = source ? source.name : item.s;
+        const sourceName = this.getSourceDisplayName(item.s);
         const license = item.l || (source ? source.license : 'Unknown');
-        const isColorizable = !this.nonColorableSources.has(item.s);
+        const isApiItem = item._apiItem === true;
+        const isColorizable = !isApiItem && !this.nonColorableSources.has(item.s);
 
         document.getElementById('modalTitle').textContent = item.n;
 
         const previewImage = document.getElementById('previewImage');
-        if (item.p) {
+
+        // Common onload handler to calculate fit zoom
+        const onImageLoad = () => {
+            this.calculateFitZoom(previewImage);
+            if (this.colorMode === 'monochrome' && isColorizable) {
+                this.detectAndUpdateColorMode(previewImage);
+            }
+        };
+
+        // Error handler for failed images - with fallback chain
+        let fallbackAttempted = false;
+        const onImageError = () => {
+            const failedSrc = previewImage.src;
+            console.error('Failed to load image:', failedSrc);
+
+            // For static items, try falling back to thumbnail (_64) if _256 failed
+            if (!fallbackAttempted && item.p && failedSrc.includes('_256.')) {
+                fallbackAttempted = true;
+                console.log('Falling back to thumbnail:', item.p);
+                previewImage.src = item.p;
+                this.originalImageUrl = item.p;
+                return;
+            }
+
+            // Show placeholder
+            previewImage.src = 'data:image/svg+xml,' + encodeURIComponent(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">' +
+                '<rect fill="#1a1a2e" width="200" height="200"/>' +
+                '<text x="100" y="90" text-anchor="middle" fill="#666" font-size="14">Image not available</text>' +
+                '<text x="100" y="115" text-anchor="middle" fill="#555" font-size="11">CORS or hotlink blocked</text>' +
+                '</svg>'
+            );
+        };
+        previewImage.onerror = onImageError;
+
+        if (isApiItem) {
+            // API items: show thumbnail first, then load full resolution
+            this.originalImageUrl = item._original || item.p;
+            previewImage.src = item.p; // Start with thumbnail
+            previewImage.alt = item.n;
+            previewImage.onload = onImageLoad;
+
+            // Load full resolution image (cached)
+            if (item._original && item._original !== item.p) {
+                this.loadFullResolutionImage(item._original, previewImage);
+            }
+        } else if (item.p) {
             const largeUrl = item.p.replace(/_64\.(jpg|png)$/, '_256.$1');
             this.originalImageUrl = largeUrl;
             previewImage.src = largeUrl;
             previewImage.alt = item.n;
-
-            previewImage.onload = () => {
-                if (this.colorMode === 'monochrome' && isColorizable) {
-                    this.detectAndUpdateColorMode(previewImage);
-                }
-            };
+            previewImage.onload = onImageLoad;
         } else {
             previewImage.src = '';
             this.originalImageUrl = null;
         }
 
-        this.setZoom(3);
+        // Show/hide SVG size presets
+        const svgSizeControls = document.getElementById('svgSizeControls');
+        if (svgSizeControls) {
+            svgSizeControls.style.display = this.isSvgSource(item.s) ? 'flex' : 'none';
+        }
+
+        this.applyZoom();
 
         const colorizeToggle = document.getElementById('colorizeToggle');
         const colorizeContainer = colorizeToggle.closest('.colorize-toggle');
@@ -902,21 +1150,49 @@ class StagVault {
         const infoContainer = document.getElementById('modalInfo');
         const tags = (item.t || []).map(t => `<span class="tag">${this.escapeHtml(t)}</span>`).join(' ');
 
-        const licenseUrl = license && license !== 'Unknown'
-            ? `https://spdx.org/licenses/${encodeURIComponent(license)}.html`
-            : null;
-        const licenseHtml = licenseUrl
-            ? `<a href="${licenseUrl}" target="_blank" rel="noopener">${this.escapeHtml(license)}</a>`
-            : this.escapeHtml(license);
+        // Build license HTML
+        let licenseHtml;
+        if (license && license !== 'Unknown') {
+            // Check if it's a standard SPDX license
+            if (/^[A-Z0-9.\-]+$/i.test(license) && !license.includes('License')) {
+                licenseHtml = `<a href="https://spdx.org/licenses/${encodeURIComponent(license)}.html" target="_blank" rel="noopener">${this.escapeHtml(license)}</a>`;
+            } else {
+                licenseHtml = this.escapeHtml(license);
+            }
+        } else {
+            licenseHtml = 'Unknown';
+        }
 
-        // Determine file format from thumbnail path or source
-        const isSvgSource = this.isSvgSource(item.s);
-        const downloadButton = this.renderDownloadButton(item, isSvgSource);
+        // Build attribution for API items
+        let attributionHtml = '';
+        if (isApiItem) {
+            if (item._photographer && item._photographerUrl) {
+                attributionHtml = `<br>Photo by <a href="${item._photographerUrl}" target="_blank" rel="noopener">${this.escapeHtml(item._photographer)}</a>`;
+            } else if (item._user && item._userUrl) {
+                attributionHtml = `<br>By <a href="${item._userUrl}" target="_blank" rel="noopener">${this.escapeHtml(item._user)}</a>`;
+            } else if (item._artist) {
+                // Strip HTML tags from Wikimedia artist field
+                const artistText = item._artist.replace(/<[^>]*>/g, '');
+                attributionHtml = `<br>By ${this.escapeHtml(artistText)}`;
+            }
+        }
+
+        // Build resolution info for API items
+        let resolutionHtml = '';
+        if (isApiItem && item._width && item._height) {
+            resolutionHtml = `<br>Resolution: ${item._width} × ${item._height}`;
+        }
+
+        // Determine download button type
+        const isSvgSource = !isApiItem && this.isSvgSource(item.s);
+        const downloadButton = isApiItem
+            ? this.renderApiDownloadButton(item)
+            : this.renderDownloadButton(item, isSvgSource);
 
         infoContainer.innerHTML = `
             <h2>${this.escapeHtml(item.n)}</h2>
             <p>
-                Source: ${this.escapeHtml(sourceName)}<br>
+                Source: ${this.escapeHtml(sourceName)}${attributionHtml}${resolutionHtml}<br>
                 ${item.y ? `Style: ${this.escapeHtml(item.y)}<br>` : ''}
                 License: ${licenseHtml}
             </p>
@@ -927,6 +1203,120 @@ class StagVault {
         `;
 
         document.getElementById('modalOverlay').classList.add('active');
+    }
+
+    getSourceDisplayName(sourceId) {
+        // Check static sources first
+        const source = this.sources.find(s => s.id === sourceId);
+        if (source) return source.name;
+
+        // Check API providers
+        const providerNames = {
+            'pexels': 'Pexels',
+            'pixabay': 'Pixabay',
+            'unsplash': 'Unsplash',
+            'wikimedia': 'Wikimedia Commons'
+        };
+        return providerNames[sourceId] || sourceId;
+    }
+
+    renderApiDownloadButton(item) {
+        const downloadUrl = item._directUrl || item._original || item.p;
+        if (!downloadUrl) return '';
+
+        // For Pixabay and some others, direct download is blocked - show link to page
+        const pageUrl = item._pageUrl;
+        const hasPageLink = pageUrl && (item.s === 'pixabay' || item.s === 'wikimedia');
+
+        let buttons = `
+            <button class="btn btn-primary" onclick="stagvault.downloadApiImage('${downloadUrl}', '${this.sanitizeFilename(item.n)}')">
+                Download
+            </button>
+        `;
+
+        if (hasPageLink) {
+            buttons += `
+                <a href="${pageUrl}" target="_blank" rel="noopener" class="btn btn-secondary" style="margin-left: 8px;">
+                    View on ${item.s === 'pixabay' ? 'Pixabay' : 'Wikimedia'}
+                </a>
+            `;
+        }
+
+        return buttons;
+    }
+
+    async downloadApiImage(url, filename) {
+        try {
+            // For some APIs we need to trigger download differently
+            if (this.currentItem?._downloadUrl) {
+                // Unsplash requires using their download endpoint
+                window.open(this.currentItem._downloadUrl, '_blank');
+                this.showToast('Download started');
+                return;
+            }
+
+            // Try to fetch and download
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Failed to fetch image');
+
+            const blob = await response.blob();
+            const ext = this.getExtensionFromMime(blob.type) || 'jpg';
+            this.downloadBlob(blob, `${filename}.${ext}`);
+            this.showToast('Downloaded!');
+        } catch (error) {
+            // Fallback: open in new tab
+            console.error('Download failed, opening in new tab:', error);
+            window.open(url, '_blank');
+        }
+    }
+
+    getExtensionFromMime(mimeType) {
+        const mimeMap = {
+            'image/jpeg': 'jpg',
+            'image/png': 'png',
+            'image/gif': 'gif',
+            'image/webp': 'webp',
+            'image/svg+xml': 'svg'
+        };
+        return mimeMap[mimeType] || null;
+    }
+
+    async loadFullResolutionImage(url, imgElement) {
+        // Check if we have this image cached as a blob URL
+        const cacheKey = `img:${url}`;
+        const cached = this.getCachedApiResponse(cacheKey);
+
+        if (cached) {
+            // Use cached blob URL
+            imgElement.src = cached;
+            this.originalImageUrl = cached;
+            return;
+        }
+
+        try {
+            // Fetch the full resolution image
+            const response = await fetch(url);
+            if (!response.ok) return;
+
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+
+            // Only update if this modal is still showing the same item
+            if (imgElement.isConnected && this.currentItem) {
+                imgElement.src = blobUrl;
+                this.originalImageUrl = blobUrl;
+
+                // Cache the blob URL (note: blob URLs are session-specific)
+                // We'll cache the URL for quick re-access within the same session
+                this.setCachedApiResponse(cacheKey, blobUrl);
+            } else {
+                // Clean up if modal was closed
+                URL.revokeObjectURL(blobUrl);
+            }
+        } catch (error) {
+            console.error('Failed to load full resolution image:', error);
+            // Keep showing the thumbnail
+        }
     }
 
     isSvgSource(sourceId) {
@@ -1339,12 +1729,110 @@ class StagVault {
         document.getElementById('modalOverlay').classList.remove('active');
     }
 
-    setZoom(level) {
-        this.zoomLevel = Math.max(1, Math.min(3, level));
+    calculateFitZoom(img) {
+        const container = document.getElementById('previewContainer');
+        if (!img.naturalWidth || !img.naturalHeight || !container) return;
+
+        const containerWidth = container.clientWidth - 20; // padding
+        const containerHeight = container.clientHeight - 20;
+
+        const scaleX = containerWidth / img.naturalWidth;
+        const scaleY = containerHeight / img.naturalHeight;
+        const fitScale = Math.min(scaleX, scaleY, 1); // Don't upscale beyond 100%
+
+        this.fitZoomPercent = Math.round(fitScale * 100);
+        this.zoomPercent = this.fitZoomPercent;
+        this.panX = 0;
+        this.panY = 0;
+        this.applyZoom();
+    }
+
+    // Zoom steps: double/half, clamped to 10-400%
+    zoomIn() {
+        if (this.zoomPercent < 400) {
+            this.zoomPercent = Math.min(400, Math.round(this.zoomPercent * 1.5));
+        }
+        this.applyZoom();
+    }
+
+    zoomOut() {
+        if (this.zoomPercent > 10) {
+            this.zoomPercent = Math.max(10, Math.round(this.zoomPercent / 1.5));
+        }
+        this.applyZoom();
+    }
+
+    zoomToFit() {
+        this.zoomPercent = this.fitZoomPercent;
+        this.panX = 0;
+        this.panY = 0;
+        this.applyZoom();
+    }
+
+    setSvgSize(size) {
+        // Set zoom to show SVG at exact pixel size
+        const img = document.getElementById('previewImage');
+        if (!img.naturalWidth) return;
+
+        // Calculate zoom % to show at this size
+        this.zoomPercent = Math.round((size / img.naturalWidth) * 100);
+        this.panX = 0;
+        this.panY = 0;
+        this.applyZoom();
+    }
+
+    applyZoom() {
         const previewImage = document.getElementById('previewImage');
-        previewImage.className = `preview-image zoom-${this.zoomLevel}`;
-        const zoomPercent = [50, 75, 100][this.zoomLevel - 1];
-        document.getElementById('zoomLevel').textContent = `${zoomPercent}%`;
+        if (!previewImage) return;
+
+        const scale = this.zoomPercent / 100;
+
+        previewImage.style.width = 'auto';
+        previewImage.style.height = 'auto';
+        previewImage.style.maxWidth = 'none';
+        previewImage.style.maxHeight = 'none';
+        previewImage.style.objectFit = 'none';
+        previewImage.style.transform = `scale(${scale}) translate(${this.panX / scale}px, ${this.panY / scale}px)`;
+        previewImage.style.cursor = this.zoomPercent > this.fitZoomPercent ? 'grab' : 'zoom-in';
+
+        document.getElementById('zoomLevel').textContent = `${this.zoomPercent}%`;
+    }
+
+    startPan(e) {
+        if (this.zoomPercent <= this.fitZoomPercent) {
+            // At or below fit, click to zoom in
+            this.zoomIn();
+            return;
+        }
+        this.isPanning = true;
+        this.panStartX = e.clientX - this.panX;
+        this.panStartY = e.clientY - this.panY;
+        document.getElementById('previewImage').style.cursor = 'grabbing';
+    }
+
+    doPan(e) {
+        if (!this.isPanning) return;
+        e.preventDefault();
+        this.panX = e.clientX - this.panStartX;
+        this.panY = e.clientY - this.panStartY;
+        this.applyZoom();
+    }
+
+    endPan() {
+        this.isPanning = false;
+        if (this.zoomPercent > this.fitZoomPercent) {
+            document.getElementById('previewImage').style.cursor = 'grab';
+        }
+    }
+
+    handleWheel(e) {
+        if (!this.currentItem) return;
+        e.preventDefault();
+        if (e.deltaY < 0) {
+            this.zoomIn();
+        } else {
+            this.zoomOut();
+        }
     }
 
     toggleColorControls(show) {
@@ -1473,6 +1961,509 @@ class StagVault {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // ==========================================
+    // API Provider Methods
+    // ==========================================
+
+    loadApiKeys() {
+        try {
+            const stored = localStorage.getItem('stagvault_api_keys');
+            if (stored) {
+                const keys = JSON.parse(stored);
+                for (const [provider, data] of Object.entries(keys)) {
+                    if (this.apiProviders[provider]) {
+                        this.apiProviders[provider].apiKey = data.apiKey || null;
+                        this.apiProviders[provider].enabled = data.enabled || false;
+                    }
+                }
+            }
+            // Wikimedia is always enabled by default (no key needed)
+            const wikimediaEnabled = localStorage.getItem('stagvault_wikimedia_enabled');
+            if (wikimediaEnabled !== null) {
+                this.apiProviders.wikimedia.enabled = wikimediaEnabled === 'true';
+            }
+        } catch (e) {
+            console.error('Failed to load API keys:', e);
+        }
+    }
+
+    loadApiCache() {
+        try {
+            const stored = localStorage.getItem('stagvault_api_cache');
+            if (stored) {
+                const cacheData = JSON.parse(stored);
+                const now = Date.now();
+                // Load only non-expired entries
+                for (const [url, entry] of Object.entries(cacheData)) {
+                    if (entry.expires > now) {
+                        this.apiCache.set(url, entry);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load API cache:', e);
+        }
+    }
+
+    saveApiCache() {
+        try {
+            const cacheObj = {};
+            const now = Date.now();
+            // Only save non-expired entries, limit to 100 most recent
+            const entries = Array.from(this.apiCache.entries())
+                .filter(([, entry]) => entry.expires > now)
+                .sort((a, b) => b[1].timestamp - a[1].timestamp)
+                .slice(0, 100);
+
+            for (const [url, entry] of entries) {
+                cacheObj[url] = entry;
+            }
+            localStorage.setItem('stagvault_api_cache', JSON.stringify(cacheObj));
+        } catch (e) {
+            // localStorage might be full, clear old cache
+            console.error('Failed to save API cache:', e);
+            try {
+                localStorage.removeItem('stagvault_api_cache');
+            } catch {}
+        }
+    }
+
+    getCachedApiResponse(url) {
+        const entry = this.apiCache.get(url);
+        if (entry && entry.expires > Date.now()) {
+            return entry.data;
+        }
+        // Remove expired entry
+        if (entry) {
+            this.apiCache.delete(url);
+        }
+        return null;
+    }
+
+    setCachedApiResponse(url, data) {
+        const entry = {
+            data,
+            timestamp: Date.now(),
+            expires: Date.now() + this.API_CACHE_TTL
+        };
+        this.apiCache.set(url, entry);
+        // Debounce cache saves to avoid excessive writes
+        if (this.cacheSaveTimer) clearTimeout(this.cacheSaveTimer);
+        this.cacheSaveTimer = setTimeout(() => this.saveApiCache(), 2000);
+    }
+
+    saveApiKeys() {
+        try {
+            const keys = {};
+            for (const [provider, config] of Object.entries(this.apiProviders)) {
+                if (provider !== 'wikimedia') {
+                    keys[provider] = {
+                        apiKey: config.apiKey,
+                        enabled: config.enabled
+                    };
+                }
+            }
+            localStorage.setItem('stagvault_api_keys', JSON.stringify(keys));
+            localStorage.setItem('stagvault_wikimedia_enabled', this.apiProviders.wikimedia.enabled);
+        } catch (e) {
+            console.error('Failed to save API keys:', e);
+        }
+    }
+
+    saveApiKey(provider, value) {
+        if (!this.apiProviders[provider]) return;
+
+        const trimmedValue = value.trim();
+        this.apiProviders[provider].apiKey = trimmedValue || null;
+
+        // Auto-enable if key is provided
+        if (trimmedValue) {
+            this.apiProviders[provider].enabled = true;
+            const enabledToggle = document.getElementById(`${provider}-enabled`);
+            if (enabledToggle) enabledToggle.checked = true;
+        }
+
+        this.saveApiKeys();
+        this.updateProviderStatus(provider);
+
+        // Refresh sidebar to show new API source and licenses
+        this.addApiSourcesToTree();
+        this.renderSourcesTree();
+        this.renderLicenses();
+    }
+
+    toggleProvider(provider, enabled) {
+        if (!this.apiProviders[provider]) return;
+
+        this.apiProviders[provider].enabled = enabled;
+        this.saveApiKeys();
+        this.updateProviderStatus(provider);
+
+        // Refresh sidebar to show/hide API sources and licenses
+        this.addApiSourcesToTree();
+        this.renderSourcesTree();
+        this.renderLicenses();
+    }
+
+    updateProviderStatus(provider) {
+        const statusEl = document.getElementById(`${provider}-status`);
+        if (!statusEl) return;
+
+        const config = this.apiProviders[provider];
+        const isActive = config.enabled && (provider === 'wikimedia' || config.apiKey);
+
+        statusEl.textContent = isActive ? 'Active' : 'Inactive';
+        statusEl.className = `api-provider-status ${isActive ? 'active' : 'inactive'}`;
+    }
+
+    openSettings() {
+        // Update UI with current values
+        for (const [provider, config] of Object.entries(this.apiProviders)) {
+            const keyInput = document.getElementById(`${provider}-key`);
+            const enabledToggle = document.getElementById(`${provider}-enabled`);
+
+            if (keyInput && config.apiKey) {
+                keyInput.value = config.apiKey;
+            }
+            if (enabledToggle) {
+                enabledToggle.checked = config.enabled;
+            }
+
+            this.updateProviderStatus(provider);
+        }
+
+        document.getElementById('settingsModal').classList.add('active');
+    }
+
+    closeSettings() {
+        document.getElementById('settingsModal').classList.remove('active');
+    }
+
+    clearAllApiKeys() {
+        for (const provider of Object.keys(this.apiProviders)) {
+            if (provider !== 'wikimedia') {
+                this.apiProviders[provider].apiKey = null;
+                this.apiProviders[provider].enabled = false;
+
+                const keyInput = document.getElementById(`${provider}-key`);
+                const enabledToggle = document.getElementById(`${provider}-enabled`);
+                if (keyInput) keyInput.value = '';
+                if (enabledToggle) enabledToggle.checked = false;
+            }
+            this.updateProviderStatus(provider);
+        }
+
+        localStorage.removeItem('stagvault_api_keys');
+        this.showToast('API keys cleared');
+    }
+
+    parseBulkApiKeys(text) {
+        if (!text || text.trim().length < 10) return;
+
+        // Map of env var names to provider IDs
+        const keyMap = {
+            'PEXELS_API_KEY': 'pexels',
+            'PEXELS_KEY': 'pexels',
+            'PIXABAY_API_KEY': 'pixabay',
+            'PIXABAY_KEY': 'pixabay',
+            'UNSPLASH_API_KEY': 'unsplash',
+            'UNSPLASH_ACCESS_KEY': 'unsplash',
+            'UNSPLASH_KEY': 'unsplash'
+        };
+
+        let foundAny = false;
+
+        // Parse each line
+        const lines = text.split(/[\n\r]+/);
+        for (const line of lines) {
+            // Match KEY=value or KEY = value patterns
+            const match = line.match(/^\s*([A-Z_]+)\s*=\s*(.+?)\s*$/);
+            if (match) {
+                const [, envKey, value] = match;
+                const provider = keyMap[envKey];
+
+                if (provider && value) {
+                    this.apiProviders[provider].apiKey = value;
+                    this.apiProviders[provider].enabled = true;
+
+                    // Update UI
+                    const keyInput = document.getElementById(`${provider}-key`);
+                    const enabledToggle = document.getElementById(`${provider}-enabled`);
+                    if (keyInput) keyInput.value = value;
+                    if (enabledToggle) enabledToggle.checked = true;
+
+                    this.updateProviderStatus(provider);
+                    foundAny = true;
+                }
+            }
+        }
+
+        if (foundAny) {
+            this.saveApiKeys();
+            // Clear the textarea after successful import
+            const textarea = document.getElementById('bulkApiKeys');
+            if (textarea) textarea.value = '';
+            this.showToast('API keys imported!');
+        }
+    }
+
+    // Get list of enabled API providers
+    getEnabledProviders() {
+        return Object.entries(this.apiProviders)
+            .filter(([id, config]) => config.enabled && (id === 'wikimedia' || config.apiKey))
+            .map(([id]) => id);
+    }
+
+    // ==========================================
+    // API Search Methods
+    // ==========================================
+
+    async searchPexels(query, page = 1, perPage = 20) {
+        const config = this.apiProviders.pexels;
+        if (!config.apiKey || !config.enabled) return [];
+
+        const url = `${config.baseUrl}/search?query=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}`;
+
+        // Check cache first
+        const cached = this.getCachedApiResponse(url);
+        if (cached) {
+            return cached;
+        }
+
+        try {
+            const response = await fetch(url, {
+                headers: { 'Authorization': config.apiKey }
+            });
+
+            if (!response.ok) throw new Error(`Pexels API error: ${response.status}`);
+
+            // Track rate limit
+            const remaining = response.headers.get('X-Ratelimit-Remaining');
+            if (remaining) config.rateLimit.remaining = parseInt(remaining);
+
+            const data = await response.json();
+
+            const results = (data.photos || []).map(photo => ({
+                id: `pexels-${photo.id}`,
+                n: photo.alt || `Photo ${photo.id}`,
+                s: 'pexels',
+                t: ['photo', 'pexels'],
+                p: photo.src.small,
+                l: 'Pexels License',
+                _apiItem: true,
+                _original: photo.src.original,
+                _width: photo.width,
+                _height: photo.height,
+                _photographer: photo.photographer,
+                _photographerUrl: photo.photographer_url
+            }));
+
+            // Cache the results
+            this.setCachedApiResponse(url, results);
+            return results;
+        } catch (error) {
+            console.error('Pexels search failed:', error);
+            return [];
+        }
+    }
+
+    async searchPixabay(query, page = 1, perPage = 20) {
+        const config = this.apiProviders.pixabay;
+        if (!config.apiKey || !config.enabled) return [];
+
+        const url = `${config.baseUrl}/?key=${encodeURIComponent(config.apiKey)}&q=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}&image_type=photo`;
+
+        // Check cache first (use URL without key for cache key)
+        const cacheKey = `pixabay:${query}:${page}:${perPage}`;
+        const cached = this.getCachedApiResponse(cacheKey);
+        if (cached) {
+            return cached;
+        }
+
+        try {
+            const response = await fetch(url);
+
+            if (!response.ok) throw new Error(`Pixabay API error: ${response.status}`);
+
+            // Track rate limit from headers
+            const remaining = response.headers.get('X-RateLimit-Remaining');
+            if (remaining) config.rateLimit.remaining = parseInt(remaining);
+
+            const data = await response.json();
+
+            const results = (data.hits || []).map(image => ({
+                id: `pixabay-${image.id}`,
+                n: image.tags || `Image ${image.id}`,
+                s: 'pixabay',
+                t: (image.tags || '').split(',').map(t => t.trim()).filter(Boolean),
+                p: image.previewURL,
+                l: 'Pixabay License',
+                _apiItem: true,
+                // Use webformatURL (640px) - largeImageURL blocks hotlinking
+                _original: image.webformatURL,
+                _width: image.webformatWidth || image.imageWidth,
+                _height: image.webformatHeight || image.imageHeight,
+                _fullWidth: image.imageWidth,
+                _fullHeight: image.imageHeight,
+                _user: image.user,
+                _userUrl: `https://pixabay.com/users/${image.user}-${image.user_id}/`,
+                _pageUrl: image.pageURL
+            }));
+
+            // Cache the results
+            this.setCachedApiResponse(cacheKey, results);
+            return results;
+        } catch (error) {
+            console.error('Pixabay search failed:', error);
+            return [];
+        }
+    }
+
+    async searchUnsplash(query, page = 1, perPage = 20) {
+        const config = this.apiProviders.unsplash;
+        if (!config.apiKey || !config.enabled) return [];
+
+        const url = `${config.baseUrl}/search/photos?query=${encodeURIComponent(query)}&page=${page}&per_page=${perPage}`;
+
+        // Check cache first
+        const cached = this.getCachedApiResponse(url);
+        if (cached) {
+            return cached;
+        }
+
+        try {
+            const response = await fetch(url, {
+                headers: { 'Authorization': `Client-ID ${config.apiKey}` }
+            });
+
+            if (!response.ok) throw new Error(`Unsplash API error: ${response.status}`);
+
+            // Track rate limit
+            const remaining = response.headers.get('X-Ratelimit-Remaining');
+            if (remaining) config.rateLimit.remaining = parseInt(remaining);
+
+            const data = await response.json();
+
+            const results = (data.results || []).map(photo => ({
+                id: `unsplash-${photo.id}`,
+                n: photo.alt_description || photo.description || `Photo by ${photo.user.name}`,
+                s: 'unsplash',
+                t: (photo.tags || []).map(t => t.title).filter(Boolean),
+                p: photo.urls.small,
+                l: 'Unsplash License',
+                _apiItem: true,
+                _original: photo.urls.full,
+                _width: photo.width,
+                _height: photo.height,
+                _photographer: photo.user.name,
+                _photographerUrl: photo.user.links.html,
+                _downloadUrl: photo.links.download
+            }));
+
+            // Cache the results
+            this.setCachedApiResponse(url, results);
+            return results;
+        } catch (error) {
+            console.error('Unsplash search failed:', error);
+            return [];
+        }
+    }
+
+    async searchWikimedia(query, limit = 20) {
+        const config = this.apiProviders.wikimedia;
+        if (!config.enabled) return [];
+
+        // Use MediaWiki API to search for images
+        const params = new URLSearchParams({
+            action: 'query',
+            format: 'json',
+            origin: '*',
+            generator: 'search',
+            gsrsearch: `${query} filetype:bitmap|drawing`,
+            gsrlimit: limit,
+            gsrnamespace: '6', // File namespace
+            prop: 'imageinfo',
+            iiprop: 'url|extmetadata|size',
+            iiurlwidth: 800  // Request larger thumbnail (avoids CORS issues with direct URLs)
+        });
+
+        const url = `${config.baseUrl}?${params}`;
+
+        // Check cache first
+        const cached = this.getCachedApiResponse(url);
+        if (cached) {
+            return cached;
+        }
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Wikimedia API error: ${response.status}`);
+
+            const data = await response.json();
+            const pages = data.query?.pages || {};
+
+            const results = Object.values(pages)
+                .filter(page => page.imageinfo && page.imageinfo[0])
+                .map(page => {
+                    const info = page.imageinfo[0];
+                    const meta = info.extmetadata || {};
+                    const title = page.title.replace(/^File:/, '').replace(/\.[^.]+$/, '');
+
+                    // thumburl at 800px is the best balance for preview
+                    // Direct info.url often has CORS issues
+                    const previewUrl = info.thumburl || info.url;
+                    return {
+                        id: `wikimedia-${page.pageid}`,
+                        n: meta.ObjectName?.value || title,
+                        s: 'wikimedia',
+                        t: ['wikimedia', 'commons'],
+                        p: previewUrl,
+                        l: meta.LicenseShortName?.value || 'Wikimedia Commons',
+                        _apiItem: true,
+                        _original: previewUrl,  // Use thumbnail - direct URLs have CORS issues
+                        _directUrl: info.url,   // Keep original for download
+                        _width: info.thumbwidth || info.width,
+                        _height: info.thumbheight || info.height,
+                        _fullWidth: info.width,
+                        _fullHeight: info.height,
+                        _description: meta.ImageDescription?.value,
+                        _artist: meta.Artist?.value,
+                        _pageUrl: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(page.title.replace(/^File:/, ''))}`
+                    };
+                });
+
+            // Cache the results
+            this.setCachedApiResponse(url, results);
+            return results;
+        } catch (error) {
+            console.error('Wikimedia search failed:', error);
+            return [];
+        }
+    }
+
+    async searchApiProviders(query) {
+        const enabledProviders = this.getEnabledProviders();
+        if (enabledProviders.length === 0) return [];
+
+        const searches = [];
+
+        if (enabledProviders.includes('pexels')) {
+            searches.push(this.searchPexels(query));
+        }
+        if (enabledProviders.includes('pixabay')) {
+            searches.push(this.searchPixabay(query));
+        }
+        if (enabledProviders.includes('unsplash')) {
+            searches.push(this.searchUnsplash(query));
+        }
+        if (enabledProviders.includes('wikimedia')) {
+            searches.push(this.searchWikimedia(query));
+        }
+
+        const results = await Promise.all(searches);
+        return results.flat();
     }
 }
 

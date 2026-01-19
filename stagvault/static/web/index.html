@@ -325,7 +325,8 @@
             object-fit: contain;
         }
 
-        .result-icon .placeholder {
+        .result-icon .placeholder,
+        .result-icon.placeholder {
             width: 64px;
             height: 64px;
             background: var(--border);
@@ -413,9 +414,9 @@
             background: var(--bg-secondary);
             border-radius: 12px;
             padding: 24px;
-            max-width: 600px;
-            width: 100%;
-            max-height: 90vh;
+            max-width: 900px;
+            width: 95%;
+            max-height: 95vh;
             overflow-y: auto;
         }
 
@@ -441,7 +442,7 @@
         .preview-area {
             background: var(--bg);
             border-radius: 12px;
-            padding: 20px;
+            padding: 16px;
             margin-bottom: 20px;
         }
 
@@ -450,18 +451,22 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: 280px;
+            height: 60vh;
+            min-height: 400px;
+            max-height: 700px;
             margin-bottom: 16px;
+            overflow: hidden;
+            background: repeating-conic-gradient(var(--bg-secondary) 0% 25%, var(--bg) 0% 50%) 50% / 20px 20px;
+            border-radius: 8px;
         }
 
         .preview-image {
             max-width: 100%;
-            transition: transform 0.2s;
+            max-height: 100%;
+            object-fit: contain;
+            user-select: none;
+            -webkit-user-drag: none;
         }
-
-        .preview-image.zoom-1 { transform: scale(0.5); }
-        .preview-image.zoom-2 { transform: scale(0.75); }
-        .preview-image.zoom-3 { transform: scale(1); }
 
         .color-controls {
             display: flex;
@@ -498,8 +503,9 @@
         .zoom-level {
             font-size: 0.8rem;
             color: var(--text-muted);
-            min-width: 40px;
+            min-width: 50px;
             text-align: center;
+            font-variant-numeric: tabular-nums;
         }
 
         .colorize-toggle {
@@ -692,6 +698,152 @@
             letter-spacing: 0.5px;
         }
 
+        /* Settings button */
+        .settings-btn {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 6px;
+        }
+
+        .settings-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--text);
+        }
+
+        .sidebar-header {
+            position: relative;
+        }
+
+        /* Settings Modal */
+        .settings-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .settings-modal.active {
+            display: flex;
+        }
+
+        .settings-content {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 500px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .settings-header h2 {
+            margin: 0;
+        }
+
+        .api-provider {
+            background: var(--bg);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .api-provider-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .api-provider-name {
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .api-provider-status {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        .api-provider-status.active {
+            background: #22c55e;
+            color: white;
+        }
+
+        .api-provider-status.inactive {
+            background: var(--border);
+            color: var(--text-muted);
+        }
+
+        .api-key-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-secondary);
+            color: var(--text);
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+
+        .api-key-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .api-provider-help {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 8px;
+        }
+
+        .api-provider-help a {
+            color: var(--accent);
+        }
+
+        .provider-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .provider-toggle label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        /* API result cards */
+        .result-card.api-result {
+            border-left: 2px solid var(--accent);
+        }
+
+        .result-card.api-result .result-icon {
+            background: linear-gradient(135deg, var(--bg) 0%, var(--bg-tertiary) 100%);
+        }
+
         /* Responsive */
         @media (max-width: 900px) {
             .sidebar {
@@ -722,6 +874,12 @@
         <div class="sidebar-header">
             <h1>StagVault</h1>
             <p class="subtitle">Icon Search</p>
+            <button class="settings-btn" onclick="stagvault.openSettings()" title="API Settings">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+            </button>
         </div>
 
         <div class="filter-section" id="sourcesSection">
@@ -774,15 +932,24 @@
             </div>
 
             <div class="preview-area">
-                <div class="preview-container">
-                    <img id="previewImage" class="preview-image zoom-3" src="" alt="">
+                <div class="preview-container" id="previewContainer">
+                    <img id="previewImage" class="preview-image" src="" alt="">
                 </div>
 
                 <div class="color-controls">
                     <div class="zoom-control">
-                        <button class="zoom-btn" id="zoomOut">-</button>
+                        <button class="zoom-btn" id="zoomOut">−</button>
                         <span class="zoom-level" id="zoomLevel">100%</span>
                         <button class="zoom-btn" id="zoomIn">+</button>
+                        <button class="zoom-btn" id="zoomFit" title="Fit to view (0)">⊡</button>
+                    </div>
+
+                    <div class="zoom-control svg-sizes" id="svgSizeControls" style="display: none;">
+                        <span style="color: var(--text-muted); font-size: 0.75rem; margin-right: 4px;">Size:</span>
+                        <button class="zoom-btn svg-size-btn" data-size="64">64</button>
+                        <button class="zoom-btn svg-size-btn" data-size="128">128</button>
+                        <button class="zoom-btn svg-size-btn" data-size="256">256</button>
+                        <button class="zoom-btn svg-size-btn" data-size="512">512</button>
                     </div>
 
                     <div class="zoom-control colorize-toggle">
@@ -806,6 +973,110 @@
             </div>
 
             <div class="modal-info" id="modalInfo"></div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="settings-modal" id="settingsModal">
+        <div class="settings-content">
+            <div class="settings-header">
+                <h2>API Settings</h2>
+                <button class="modal-close" onclick="stagvault.closeSettings()">&times;</button>
+            </div>
+
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.9rem;">
+                Add API keys to search additional image sources. Keys are stored locally in your browser.
+            </p>
+
+            <div class="bulk-import" style="margin-bottom: 20px;">
+                <textarea id="bulkApiKeys" class="api-key-input" rows="3"
+                    placeholder="Paste env format: PEXELS_API_KEY=xxx&#10;PIXABAY_API_KEY=xxx&#10;UNSPLASH_API_KEY=xxx"
+                    style="resize: vertical; font-size: 0.8rem;"
+                    oninput="stagvault.parseBulkApiKeys(this.value)"></textarea>
+            </div>
+
+            <div class="api-provider" data-provider="pexels">
+                <div class="api-provider-header">
+                    <span class="api-provider-name">Pexels</span>
+                    <span class="api-provider-status inactive" id="pexels-status">Inactive</span>
+                </div>
+                <input type="password" class="api-key-input" id="pexels-key"
+                       placeholder="Enter Pexels API key..."
+                       onchange="stagvault.saveApiKey('pexels', this.value)">
+                <div class="api-provider-help">
+                    Free API. <a href="https://www.pexels.com/api/" target="_blank">Get API key</a>
+                </div>
+                <div class="provider-toggle">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="pexels-enabled" onchange="stagvault.toggleProvider('pexels', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <label for="pexels-enabled">Enable in search</label>
+                </div>
+            </div>
+
+            <div class="api-provider" data-provider="pixabay">
+                <div class="api-provider-header">
+                    <span class="api-provider-name">Pixabay</span>
+                    <span class="api-provider-status inactive" id="pixabay-status">Inactive</span>
+                </div>
+                <input type="password" class="api-key-input" id="pixabay-key"
+                       placeholder="Enter Pixabay API key..."
+                       onchange="stagvault.saveApiKey('pixabay', this.value)">
+                <div class="api-provider-help">
+                    Free API. <a href="https://pixabay.com/api/docs/" target="_blank">Get API key</a>
+                </div>
+                <div class="provider-toggle">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="pixabay-enabled" onchange="stagvault.toggleProvider('pixabay', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <label for="pixabay-enabled">Enable in search</label>
+                </div>
+            </div>
+
+            <div class="api-provider" data-provider="unsplash">
+                <div class="api-provider-header">
+                    <span class="api-provider-name">Unsplash</span>
+                    <span class="api-provider-status inactive" id="unsplash-status">Inactive</span>
+                </div>
+                <input type="password" class="api-key-input" id="unsplash-key"
+                       placeholder="Enter Unsplash Access Key..."
+                       onchange="stagvault.saveApiKey('unsplash', this.value)">
+                <div class="api-provider-help">
+                    Free (50 req/hour demo). <a href="https://unsplash.com/developers" target="_blank">Get API key</a>
+                </div>
+                <div class="provider-toggle">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="unsplash-enabled" onchange="stagvault.toggleProvider('unsplash', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <label for="unsplash-enabled">Enable in search</label>
+                </div>
+            </div>
+
+            <div class="api-provider" data-provider="wikimedia">
+                <div class="api-provider-header">
+                    <span class="api-provider-name">Wikimedia Commons</span>
+                    <span class="api-provider-status active" id="wikimedia-status">Active</span>
+                </div>
+                <div class="api-provider-help">
+                    No API key required. Public domain and freely licensed images.
+                </div>
+                <div class="provider-toggle">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="wikimedia-enabled" checked onchange="stagvault.toggleProvider('wikimedia', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <label for="wikimedia-enabled">Enable in search</label>
+                </div>
+            </div>
+
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);">
+                <button class="btn btn-secondary" onclick="stagvault.clearAllApiKeys()" style="width: 100%;">
+                    Clear All API Keys
+                </button>
+            </div>
         </div>
     </div>
 
