@@ -17,10 +17,17 @@ license:
   modification_ok: true
   share_alike: false
 
+# Note: Fill icons are matched first, then all remaining icons are treated as outline
+# The scan logic skips files already matched by earlier patterns
 paths:
+  - pattern: "icons/*-fill.svg"
+    format: svg
+    tags: [icon, ui, bootstrap]
+    style: fill
   - pattern: "icons/*.svg"
     format: svg
     tags: [icon, ui, bootstrap]
+    style: outline
 
 metadata:
   homepage: https://icons.getbootstrap.com

@@ -22,12 +22,15 @@ paths:
     format: svg
     tags: [icon, ui, github]
     size: 16
+    style: outline
   - pattern: "icons/*-24.svg"
     format: svg
     tags: [icon, ui, github]
     size: 24
+    style: outline
 
 metadata:
   homepage: https://primer.style/foundations/icons
   icon_count: 600
   sizes: [16, 24]
+  styles: [outline]

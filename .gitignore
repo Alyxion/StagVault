@@ -1,6 +1,8 @@
 # StagVault specific
 data/
-!data/.gitkeep
+# exclude stagvault/data
+!stagvault/data
+!stagvault/data/.gitkeep
 index/
 !index/.gitkeep
 cache/
@@ -214,3 +216,4 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+static_site/thumbs

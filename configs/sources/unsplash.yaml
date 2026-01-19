@@ -1,0 +1,54 @@
+id: unsplash
+name: Unsplash
+description: Beautiful free images and pictures from the world's most generous community of photographers
+type: api
+
+api:
+  base_url: https://api.unsplash.com/
+  auth_type: header
+  auth_param: Authorization
+  auth_prefix: "Client-ID "
+  api_key_env: UNSPLASH_API_KEY
+
+  rate_limit:
+    requests: 50
+    window_seconds: 3600  # 50 requests per hour (demo)
+
+  cache_duration: 86400  # 24 hours
+
+  endpoints:
+    search_images: /search/photos
+
+license:
+  name: Unsplash License
+  url: https://unsplash.com/license
+  terms_url: https://unsplash.com/api-terms
+  attribution_required: true  # REQUIRED - must credit photographer
+  commercial_ok: true
+  modification_ok: true
+
+restrictions:
+  hotlink_allowed: true  # Must use Unsplash image URLs
+  no_ads_alongside: true  # IMPORTANT: No ads alongside images
+  no_resale: true
+  no_database: true  # Cannot build competing service
+  download_trigger_required: true  # Must trigger download endpoint
+
+tier: restricted  # Low rate limit (50/hour demo), requires explicit selection
+
+capabilities:
+  images: true
+  videos: false
+  vectors: false
+  illustrations: false
+
+# Why restricted tier:
+# - Demo apps limited to 50 requests/hour
+# - Production apps require approval (5000/hour)
+# - Strict attribution requirements
+# - No ads alongside images
+# - Must trigger download endpoint for tracking
+
+metadata:
+  homepage: https://unsplash.com
+  api_docs: https://unsplash.com/documentation

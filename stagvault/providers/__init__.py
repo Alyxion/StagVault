@@ -14,12 +14,14 @@ from stagvault.providers.base import (
     ProviderConfig,
     ProviderImage,
     ProviderResult,
+    ProviderTier,
     ProviderVideo,
     RateLimitInfo,
 )
 from stagvault.providers.cache import ProviderCache
 from stagvault.providers.pixabay import PixabayProvider
 from stagvault.providers.pexels import PexelsProvider
+from stagvault.providers.unsplash import UnsplashProvider
 from stagvault.providers.registry import ProviderRegistry, get_provider, get_registry
 from stagvault.providers.routes import create_provider_router
 
@@ -29,6 +31,7 @@ __all__ = [
     "MediaType",
     "ProviderConfig",
     "ProviderImage",
+    "ProviderTier",
     "ProviderVideo",
     "ProviderResult",
     "RateLimitInfo",
@@ -37,6 +40,7 @@ __all__ = [
     # Providers
     "PixabayProvider",
     "PexelsProvider",
+    "UnsplashProvider",
     # Registry
     "ProviderRegistry",
     "get_provider",

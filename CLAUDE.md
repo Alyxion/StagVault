@@ -4,6 +4,15 @@
 
 StagVault is an accessible media database for vector files, images, audio, textures, and other media assets. It provides unified access to multiple open-source media repositories with proper license tracking.
 
+## Documentation
+
+Detailed documentation is available in the `docs/` directory:
+
+- [docs/structure.md](docs/structure.md) - Project structure, directories, and interfaces
+- [docs/providers.md](docs/providers.md) - External API provider overview with license links
+- [docs/configuration.md](docs/configuration.md) - YAML source configuration reference
+- [docs/aliases.md](docs/aliases.md) - Alias system for human-readable names and search terms
+
 ## Tech Stack
 
 - **Python**: 3.13 with Poetry for dependency management
@@ -11,6 +20,26 @@ StagVault is an accessible media database for vector files, images, audio, textu
 - **Static Deployment**: Pure file access via any HTTP server + JavaScript
 - **Search**: Local search index (SQLite FTS5 or similar) for fast name/topic lookup
 - **Data Format**: JSON for metadata, configuration files in YAML
+
+## Environment Setup
+
+**IMPORTANT**: This project requires Python 3.13. Do not modify the virtual environment.
+
+```bash
+# Set up the environment (only if not already done)
+poetry env use python3.13
+poetry install
+
+# Verify correct Python version
+poetry run python --version  # Should show Python 3.13.x
+```
+
+If you see warnings about unsupported Python versions, the environment needs to be recreated:
+```bash
+poetry env remove --all
+poetry env use python3.13
+poetry install
+```
 
 ## Project Structure
 
@@ -93,6 +122,39 @@ for result in results:
 # Raw search - returns individual MediaItems
 results = vault.search("eraser", styles=["regular"], limit=10)
 ```
+
+### Aliases (Name Mapping)
+
+Many sources use technical identifiers as filenames (e.g., `emoji_u1f600.svg` for emojis, `ic_12345.svg` for icons). The alias system maps these to human-readable names and search terms.
+
+**Key design principle**: Source handlers (git.py, archive.py) know nothing about aliases. They return raw `MediaItem` objects with filenames as names. A separate `AliasLoader` class enriches items with display names during indexing.
+
+```yaml
+# In source config (e.g., noto-emoji.yaml)
+aliases:
+  database: stagvault/data/emojis/emoji_db.json
+  key_pattern: "emoji_u(?P<key>[0-9a-fA-F_]+)"
+  key_transform: uppercase
+```
+
+```json
+// Alias database format (emoji_db.json)
+{
+  "1F600": {
+    "name": "grinning face",
+    "aliases": ["grin", "smile", "happy"],
+    "group": "Smileys & Emotion",
+    "subgroup": "face-smiling"
+  }
+}
+```
+
+This separation allows:
+- Source handlers to remain simple and focused on file discovery
+- Alias databases to be shared across sources (e.g., same emoji DB for multiple emoji sets)
+- Easy addition of aliases for any source without modifying handler code
+
+See [docs/aliases.md](docs/aliases.md) for full documentation.
 
 ### Licenses
 
@@ -219,7 +281,7 @@ home|Home/house icon|home,house,main|navigation
 
 ## External API Providers
 
-StagVault supports external image/video APIs (Pixabay, Pexels) with intelligent caching and rate limiting.
+StagVault supports external image/video APIs (Pixabay, Pexels, Unsplash) with intelligent caching and rate limiting.
 
 ### Access Modes
 
@@ -248,6 +310,7 @@ API keys are stored in environment variables (never in source code):
 # .env file (git-ignored)
 PIXABAY_API_KEY=your_pixabay_key
 PEXELS_API_KEY=your_pexels_key
+UNSPLASH_API_KEY=your_unsplash_key
 ```
 
 ### Rate Limits & Caching
@@ -256,6 +319,9 @@ PEXELS_API_KEY=your_pexels_key
 |----------|------------|-------------------|------------|
 | Pixabay  | 100/60s    | 24 hours          | Not allowed (must download) |
 | Pexels   | 200/hour   | Recommended       | Allowed |
+| Unsplash | **50/hour** (demo) | 24 hours (critical!) | Required |
+
+> **Note**: Unsplash has very low limits in demo mode (50/hour). Production mode requires approval and provides 5,000/hour.
 
 The caching system automatically:
 - Respects provider-mandated cache durations (24h for Pixabay)
@@ -266,7 +332,7 @@ The caching system automatically:
 ### Python Usage
 
 ```python
-from stagvault.providers import PixabayProvider, PexelsProvider, ProviderCache, get_registry
+from stagvault.providers import PixabayProvider, PexelsProvider, UnsplashProvider, ProviderCache, get_registry
 
 # Single provider with cache
 cache = ProviderCache(cache_dir=Path("./cache"))
@@ -275,9 +341,9 @@ pixabay = PixabayProvider(cache=cache)
 results = await pixabay.search_images("mountains", page=1, per_page=20)
 print(f"Found {results.total} images, cached: {results.cached}")
 
-# Multi-provider search
+# Multi-provider search (includes all: pixabay, pexels, unsplash)
 registry = get_registry(cache_dir=Path("./cache"))
-results = await registry.search_images("sunset", providers=["pixabay", "pexels"])
+results = await registry.search_images("sunset", providers=["pixabay", "pexels", "unsplash"])
 
 for provider, result in results.items():
     print(f"{provider}: {len(result.images)} images")

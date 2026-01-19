@@ -20,7 +20,8 @@ license:
 paths:
   - pattern: "icons/*.svg"
     format: svg
-    tags: [icon, ui, minimal, outline]
+    tags: [icon, ui, minimal]
+    style: outline
 
 metadata:
   homepage: https://feathericons.com

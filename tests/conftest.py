@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 # Ensure test environment
 os.environ.setdefault("PIXABAY_API_KEY", "test_pixabay_key")
 os.environ.setdefault("PEXELS_API_KEY", "test_pexels_key")
+os.environ.setdefault("UNSPLASH_API_KEY", "test_unsplash_key")
 
 
 @pytest.fixture(scope="session")
@@ -125,12 +126,70 @@ def mock_pexels_response() -> dict:
 
 
 @pytest.fixture
+def mock_unsplash_response() -> dict:
+    """Sample Unsplash API response."""
+    return {
+        "total": 500,
+        "total_pages": 25,
+        "results": [
+            {
+                "id": "abc123xyz",
+                "created_at": "2024-01-15T10:30:00Z",
+                "updated_at": "2024-01-15T12:00:00Z",
+                "width": 4000,
+                "height": 3000,
+                "color": "#4A90D9",
+                "blur_hash": "LKO2?U%2Tw=w]~RBVZRi};RPxuwH",
+                "description": "Beautiful mountain landscape",
+                "alt_description": "snow covered mountain under blue sky",
+                "urls": {
+                    "raw": "https://images.unsplash.com/photo-abc123?ixlib=rb-4.0.3",
+                    "full": "https://images.unsplash.com/photo-abc123?q=85&w=2000",
+                    "regular": "https://images.unsplash.com/photo-abc123?q=80&w=1080",
+                    "small": "https://images.unsplash.com/photo-abc123?q=80&w=400",
+                    "thumb": "https://images.unsplash.com/photo-abc123?q=80&w=200"
+                },
+                "links": {
+                    "self": "https://api.unsplash.com/photos/abc123xyz",
+                    "html": "https://unsplash.com/photos/abc123xyz",
+                    "download": "https://unsplash.com/photos/abc123xyz/download"
+                },
+                "likes": 1234,
+                "user": {
+                    "id": "user123",
+                    "username": "naturephotographer",
+                    "name": "John Nature",
+                    "links": {
+                        "self": "https://api.unsplash.com/users/naturephotographer",
+                        "html": "https://unsplash.com/@naturephotographer"
+                    }
+                },
+                "tags": [
+                    {"title": "mountain"},
+                    {"title": "landscape"},
+                    {"title": "nature"}
+                ]
+            }
+        ]
+    }
+
+
+@pytest.fixture
 def mock_rate_limit_headers() -> dict:
     """Mock rate limit response headers."""
     return {
         "X-RateLimit-Limit": "100",
         "X-RateLimit-Remaining": "95",
         "X-RateLimit-Reset": "60"
+    }
+
+
+@pytest.fixture
+def mock_unsplash_rate_limit_headers() -> dict:
+    """Mock Unsplash rate limit headers."""
+    return {
+        "X-Ratelimit-Limit": "50",
+        "X-Ratelimit-Remaining": "45"
     }
 
 
@@ -142,18 +201,22 @@ def provider_cache(temp_dir: Path):
 
 
 @pytest.fixture
-def mock_httpx_client(mock_pixabay_response, mock_pexels_response, mock_rate_limit_headers):
+def mock_httpx_client(mock_pixabay_response, mock_pexels_response, mock_unsplash_response, mock_rate_limit_headers, mock_unsplash_rate_limit_headers):
     """Create a mock httpx client for API tests."""
     mock_response = MagicMock()
     mock_response.status_code = 200
-    mock_response.headers = mock_rate_limit_headers
 
     async def mock_get(url, **kwargs):
         mock_response.raise_for_status = MagicMock()
         if "pixabay" in url:
+            mock_response.headers = mock_rate_limit_headers
             mock_response.json = MagicMock(return_value=mock_pixabay_response)
         elif "pexels" in url:
+            mock_response.headers = mock_rate_limit_headers
             mock_response.json = MagicMock(return_value=mock_pexels_response)
+        elif "unsplash" in url:
+            mock_response.headers = mock_unsplash_rate_limit_headers
+            mock_response.json = MagicMock(return_value=mock_unsplash_response)
         return mock_response
 
     mock_client = AsyncMock()
@@ -177,6 +240,16 @@ def pexels_provider(provider_cache, mock_httpx_client):
     from stagvault.providers.pexels import PexelsProvider
 
     provider = PexelsProvider(cache=provider_cache)
+    provider._client = mock_httpx_client
+    return provider
+
+
+@pytest.fixture
+def unsplash_provider(provider_cache, mock_httpx_client):
+    """Create an Unsplash provider with mocked HTTP client."""
+    from stagvault.providers.unsplash import UnsplashProvider
+
+    provider = UnsplashProvider(cache=provider_cache)
     provider._client = mock_httpx_client
     return provider
 

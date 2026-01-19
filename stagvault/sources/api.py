@@ -11,7 +11,7 @@ from stagvault.models.media import MediaItem
 from stagvault.sources.base import SourceHandler
 
 if TYPE_CHECKING:
-    from stagvault.models.config import SourceConfig
+    from stagvault.models.source import SourceConfig
 
 
 class ApiSourceHandler(SourceHandler):

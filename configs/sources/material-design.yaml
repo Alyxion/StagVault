@@ -22,6 +22,7 @@ paths:
   - pattern: "svg/*.svg"
     format: svg
     tags: [icon, ui, material]
+    style: filled
 
 metadata:
   homepage: https://pictogrammers.com/library/mdi/

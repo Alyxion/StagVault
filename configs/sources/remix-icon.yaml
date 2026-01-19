@@ -18,12 +18,20 @@ license:
   modification_ok: true
   share_alike: false
 
+# Remix icons are organized by category with line/fill variants
+# Each category folder contains both *-line.svg and *-fill.svg files
 paths:
-  - pattern: "icons/**/*.svg"
+  - pattern: "icons/**/*-fill.svg"
     format: svg
     tags: [icon, ui]
+    style: fill
+  - pattern: "icons/**/*-line.svg"
+    format: svg
+    tags: [icon, ui]
+    style: line
 
 metadata:
   homepage: https://remixicon.com
   icon_count: 2800
+  styles: [line, fill]
   categories: [Buildings, Business, Communication, Design, Development, Device, Document, Editor, Finance, Health, Logos, Map, Media, Others, System, User, Weather]

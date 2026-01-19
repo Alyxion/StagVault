@@ -1,0 +1,17 @@
+# Noto Emoji - Google's open-source emoji set
+id: noto-emoji
+name: Noto Emoji
+type: archive
+description: Google's Noto Emoji set - over 3600 color emojis with names and categories
+
+# Archive configuration
+archive:
+  url: https://github.com/SciStag/SciStagEssentialData/releases/download/v0.0.2/scistag_essentials_0_0_2.zip
+  emoji_db: data/emoji/emoji_db.json
+  images_dir: images/noto/cpngs/
+
+# License info
+license:
+  spdx: Apache-2.0
+  name: Apache License 2.0
+  url: https://github.com/googlefonts/noto-emoji/blob/main/LICENSE

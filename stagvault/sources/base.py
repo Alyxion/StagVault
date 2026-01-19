@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from stagvault.models.config import SourceConfig
+    from stagvault.models.source import SourceConfig
     from stagvault.models.media import MediaItem
 
 

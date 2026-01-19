@@ -21,11 +21,12 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from stagvault.models.media import License, MediaGroup, MediaItem
 from stagvault.search.query import SearchPreferences
+from stagvault.thumbnails import ThumbnailSize
 from stagvault.vault import StagVault
 
 
@@ -80,6 +81,19 @@ class SearchItemsResponse(BaseModel):
 class StatsResponse(BaseModel):
     sources: dict[str, int]
     total: int
+
+
+class ThumbnailSizesResponse(BaseModel):
+    item_id: str
+    available_sizes: list[int]
+    standard_sizes: list[int]
+
+
+class ThumbnailStatsResponse(BaseModel):
+    total_count: int
+    total_size_bytes: int
+    sources: dict[str, int]
+    sizes: dict[int, int]
 
 
 class StagVaultAPI:
@@ -299,6 +313,88 @@ def create_router(
             file_path,
             media_type=media_type,
             filename=f"{item.name}.{item.format}",
+        )
+
+    # --- Thumbnail endpoints ---
+
+    @router.get("/media/{item_id}/thumbnail/{size}")
+    async def get_thumbnail(
+        item_id: str,
+        size: int,
+        vault: Annotated[StagVault, Depends(get_vault)],
+    ) -> Response:
+        """Get thumbnail for a media item.
+
+        For git sources, returns a PNG with checkerboard background.
+        For API provider sources, redirects to the provider's preview URL.
+        """
+        item = vault.get_item(item_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail=f"Item not found: {item_id}")
+
+        # Check if this is an API provider source
+        config = vault.configs.get(item.source_id)
+        if config and config.is_api_provider:
+            # For API providers, redirect to preview_url if available
+            preview_url = item.metadata.get("preview_url")
+            if preview_url:
+                return RedirectResponse(url=preview_url, status_code=301)
+            raise HTTPException(
+                status_code=404,
+                detail="No preview URL available for this API provider item",
+            )
+
+        # For git sources, return cached thumbnail
+        thumbnail_data = vault.thumbnail_generator.get_thumbnail(
+            item.source_id, item.id, size
+        )
+        if thumbnail_data is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Thumbnail not found for size {size}. Run 'stagvault thumbnails generate' first.",
+            )
+
+        return Response(
+            content=thumbnail_data,
+            media_type="image/png",
+            headers={
+                "Content-Disposition": f'inline; filename="{item.name}_{size}.png"',
+                "Cache-Control": "public, max-age=31536000",
+            },
+        )
+
+    @router.get("/media/{item_id}/thumbnails", response_model=ThumbnailSizesResponse)
+    async def list_thumbnail_sizes(
+        item_id: str,
+        vault: Annotated[StagVault, Depends(get_vault)],
+    ) -> ThumbnailSizesResponse:
+        """List available thumbnail sizes for a media item."""
+        item = vault.get_item(item_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail=f"Item not found: {item_id}")
+
+        available = vault.thumbnail_generator.get_available_sizes(
+            item.source_id, item.id
+        )
+        standard = ThumbnailSize.all_sizes()
+
+        return ThumbnailSizesResponse(
+            item_id=item_id,
+            available_sizes=available,
+            standard_sizes=standard,
+        )
+
+    @router.get("/thumbnails/stats", response_model=ThumbnailStatsResponse)
+    async def get_thumbnail_stats(
+        vault: Annotated[StagVault, Depends(get_vault)],
+    ) -> ThumbnailStatsResponse:
+        """Get thumbnail cache statistics."""
+        stats = vault.get_thumbnail_stats()
+        return ThumbnailStatsResponse(
+            total_count=stats["total_count"],
+            total_size_bytes=stats["total_size_bytes"],
+            sources=stats.get("sources", {}),
+            sizes=stats.get("sizes", {}),
         )
 
     # --- Group endpoints ---

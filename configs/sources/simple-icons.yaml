@@ -21,8 +21,10 @@ paths:
   - pattern: "icons/*.svg"
     format: svg
     tags: [icon, brand, logo]
+    style: filled
 
 metadata:
   homepage: https://simpleicons.org
   icon_count: 3000
+  styles: [filled]
   category: brands

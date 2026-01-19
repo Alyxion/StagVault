@@ -21,6 +21,7 @@ paths:
   - pattern: "icons/*.svg"
     format: svg
     tags: [icon, ui, minimal]
+    style: outline
 
 metadata:
   homepage: https://lucide.dev

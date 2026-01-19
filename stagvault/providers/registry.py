@@ -16,10 +16,12 @@ from stagvault.providers.base import (
     ProviderConfig,
     ProviderImage,
     ProviderResult,
+    ProviderTier,
 )
 from stagvault.providers.cache import ProviderCache
 from stagvault.providers.pixabay import PixabayProvider
 from stagvault.providers.pexels import PexelsProvider
+from stagvault.providers.unsplash import UnsplashProvider
 
 
 class ProviderRegistry:
@@ -36,6 +38,7 @@ class ProviderRegistry:
     PROVIDER_CLASSES: dict[str, type[APIProvider]] = {
         "pixabay": PixabayProvider,
         "pexels": PexelsProvider,
+        "unsplash": UnsplashProvider,
     }
 
     def __init__(
@@ -70,9 +73,22 @@ class ProviderRegistry:
         """Get a specific provider by ID."""
         return self._providers.get(provider_id)
 
-    def list_providers(self) -> list[str]:
-        """List all available provider IDs."""
-        return list(self._providers.keys())
+    def list_providers(self, include_restricted: bool = True) -> list[str]:
+        """List available provider IDs.
+
+        Args:
+            include_restricted: Include restricted-tier providers (default True)
+        """
+        if include_restricted:
+            return list(self._providers.keys())
+        return [
+            pid for pid, provider in self._providers.items()
+            if provider.config.tier == ProviderTier.STANDARD
+        ]
+
+    def list_standard_providers(self) -> list[str]:
+        """List only standard-tier provider IDs (excludes restricted)."""
+        return self.list_providers(include_restricted=False)
 
     def list_configs(self) -> list[ProviderConfig]:
         """List configurations for all available providers."""
@@ -87,6 +103,7 @@ class ProviderRegistry:
         query: str,
         *,
         providers: list[str] | None = None,
+        include_restricted: bool = False,
         page: int = 1,
         per_page: int = 20,
         media_type: MediaType = MediaType.ALL,
@@ -96,7 +113,8 @@ class ProviderRegistry:
 
         Args:
             query: Search term
-            providers: List of provider IDs (None = all)
+            providers: List of provider IDs (None = standard tier only)
+            include_restricted: Include restricted-tier providers in broad search
             page: Page number
             per_page: Results per page
             media_type: Filter by media type
@@ -104,8 +122,21 @@ class ProviderRegistry:
 
         Returns:
             Dict mapping provider ID to results
+
+        Note:
+            By default, restricted-tier providers (like Unsplash with 50/hour limit)
+            are excluded from broad searches to preserve rate limits. Specify them
+            explicitly in `providers` list or set `include_restricted=True`.
         """
-        target_providers = providers or list(self._providers.keys())
+        if providers is not None:
+            # Explicit provider list - use all specified providers
+            target_providers = providers
+        elif include_restricted:
+            # Include all providers
+            target_providers = list(self._providers.keys())
+        else:
+            # Default: standard tier only
+            target_providers = self.list_standard_providers()
 
         tasks = []
         provider_ids = []
@@ -142,12 +173,26 @@ class ProviderRegistry:
         query: str,
         *,
         providers: list[str] | None = None,
+        include_restricted: bool = False,
         page: int = 1,
         per_page: int = 20,
         **kwargs: Any,
     ) -> dict[str, ProviderResult]:
-        """Search for videos across multiple providers."""
-        target_providers = providers or list(self._providers.keys())
+        """Search for videos across multiple providers.
+
+        Args:
+            query: Search term
+            providers: List of provider IDs (None = standard tier only)
+            include_restricted: Include restricted-tier providers
+            page: Page number
+            per_page: Results per page
+        """
+        if providers is not None:
+            target_providers = providers
+        elif include_restricted:
+            target_providers = list(self._providers.keys())
+        else:
+            target_providers = self.list_standard_providers()
 
         tasks = []
         provider_ids = []
@@ -183,17 +228,25 @@ class ProviderRegistry:
         query: str,
         *,
         providers: list[str] | None = None,
+        include_restricted: bool = False,
         page: int = 1,
         per_page: int = 20,
         **kwargs: Any,
     ) -> UnifiedSearchResult:
         """Search for both images and videos across all providers.
 
+        Args:
+            query: Search term
+            providers: List of provider IDs (None = standard tier only)
+            include_restricted: Include restricted-tier providers
+            page: Page number
+            per_page: Results per page
+
         Returns combined results from all providers.
         """
         image_results, video_results = await asyncio.gather(
-            self.search_images(query, providers=providers, page=page, per_page=per_page, **kwargs),
-            self.search_videos(query, providers=providers, page=page, per_page=per_page, **kwargs),
+            self.search_images(query, providers=providers, include_restricted=include_restricted, page=page, per_page=per_page, **kwargs),
+            self.search_videos(query, providers=providers, include_restricted=include_restricted, page=page, per_page=per_page, **kwargs),
         )
 
         # Combine all images

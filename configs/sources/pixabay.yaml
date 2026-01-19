@@ -1,0 +1,47 @@
+id: pixabay
+name: Pixabay
+description: Free images & royalty-free stock photos
+type: api
+
+api:
+  base_url: https://pixabay.com/api/
+  auth_type: query_param
+  auth_param: key
+  api_key_env: PIXABAY_API_KEY
+
+  rate_limit:
+    requests: 100
+    window_seconds: 60
+
+  cache_duration: 86400  # 24 hours
+
+  endpoints:
+    search_images: /
+    search_videos: /videos/
+
+license:
+  name: Pixabay License
+  url: https://pixabay.com/service/license-summary/
+  terms_url: https://pixabay.com/service/terms/
+  attribution_required: false
+  commercial_ok: true
+  modification_ok: true
+
+restrictions:
+  hotlink_allowed: false
+  no_ads_alongside: false
+  no_resale: true
+  no_database: true  # Cannot compile images into database for resale
+  download_required: true  # Must download, not hotlink
+
+tier: standard  # No severe rate limits
+
+capabilities:
+  images: true
+  videos: true
+  vectors: true
+  illustrations: true
+
+metadata:
+  homepage: https://pixabay.com
+  api_docs: https://pixabay.com/api/docs/

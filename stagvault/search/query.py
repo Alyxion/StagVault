@@ -309,6 +309,26 @@ class SearchQuery:
                 cursor = self.conn.execute("SELECT COUNT(*) FROM media_items")
         return cursor.fetchone()[0]
 
+    def list_all(self, source_id: str | None = None) -> list[MediaItem]:
+        """List all items in the index.
+
+        Args:
+            source_id: Optional filter by source ID
+
+        Returns:
+            List of all media items
+        """
+        if source_id:
+            cursor = self.conn.execute(
+                "SELECT * FROM media_items WHERE source_id = ? ORDER BY name",
+                (source_id,),
+            )
+        else:
+            cursor = self.conn.execute(
+                "SELECT * FROM media_items ORDER BY source_id, name"
+            )
+        return [self._row_to_item(row) for row in cursor]
+
     def _build_fts_query(self, query: str) -> str:
         """Build an FTS5 query from user input."""
         terms = query.split()

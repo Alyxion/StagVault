@@ -1,0 +1,48 @@
+id: pexels
+name: Pexels
+description: Free stock photos & videos shared by talented creators
+type: api
+
+api:
+  base_url: https://api.pexels.com/v1/
+  auth_type: header
+  auth_param: Authorization
+  api_key_env: PEXELS_API_KEY
+
+  rate_limit:
+    requests: 200
+    window_seconds: 3600  # per hour
+
+  cache_duration: 86400  # 24 hours
+
+  endpoints:
+    search_images: /search
+    search_videos: /videos/search
+
+license:
+  name: Pexels License
+  url: https://www.pexels.com/license/
+  terms_url: https://www.pexels.com/terms-of-service/
+  api_guidelines: https://www.pexels.com/api/documentation/#guidelines
+  attribution_required: false  # Not required but appreciated
+  commercial_ok: true
+  modification_ok: true
+
+restrictions:
+  hotlink_allowed: true  # Can hotlink with attribution
+  no_ads_alongside: false
+  no_resale: true
+  no_database: true
+  download_required: false
+
+tier: standard  # Reasonable rate limits
+
+capabilities:
+  images: true
+  videos: true
+  vectors: false
+  illustrations: false
+
+metadata:
+  homepage: https://www.pexels.com
+  api_docs: https://www.pexels.com/api/documentation/

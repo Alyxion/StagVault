@@ -32,6 +32,10 @@ All providers support three access patterns:
 |----------|-------|--------|----------------|
 | Pixabay | 100 requests | 60 seconds | **24 hours (required)** |
 | Pexels | 200 requests | 1 hour | 24 hours (recommended) |
+| Unsplash | **50 requests** | 1 hour | 24 hours (critical!) |
+
+> **Note**: Unsplash has very low limits in demo mode (50/hour). Production mode
+> requires approval and provides 5,000 requests/hour.
 
 ### Rate Limit Strategy
 
@@ -193,15 +197,16 @@ NEWPROVIDER_API_KEY=your_key_here
 |----------|----------|----------|
 | `PIXABAY_API_KEY` | Pixabay | Yes |
 | `PEXELS_API_KEY` | Pexels | Yes |
+| `UNSPLASH_API_KEY` | Unsplash | Yes |
 
 **NEVER commit API keys to source control!**
 
 ## Testing
 
 ```bash
-# Run provider tests
+# Run provider tests (uses mocked responses)
 poetry run pytest tests/test_providers.py -v
 
-# Test with real API (requires keys)
-PIXABAY_API_KEY=xxx poetry run pytest tests/test_providers.py -v -m "not mock"
+# Test with real APIs (requires keys in .env)
+source .env && poetry run pytest tests/test_providers.py -v -m integration
 ```

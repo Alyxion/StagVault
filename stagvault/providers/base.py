@@ -34,6 +34,10 @@ class ProviderAuthType(str, Enum):
     BEARER = "bearer"  # Bearer token in Authorization header
 
 
+# Re-export ProviderTier from models for convenience
+from stagvault.models.provider import ProviderTier
+
+
 @dataclass
 class RateLimitInfo:
     """Rate limit status from provider response.
@@ -202,6 +206,7 @@ class ProviderConfig(BaseModel):
     supports_images: bool = True
     supports_videos: bool = False
     hotlink_allowed: bool = False  # If false, must download images
+    tier: ProviderTier = ProviderTier.STANDARD  # Provider classification
 
 
 class APIProvider(ABC):
@@ -317,6 +322,7 @@ class APIProvider(ABC):
             "cacheDuration": self.config.cache_duration,
             "rateLimitWindow": self.config.rate_limit_window,
             "rateLimitRequests": self.config.rate_limit_requests,
+            "tier": self.config.tier.value,
         }
 
 

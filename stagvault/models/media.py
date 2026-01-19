@@ -9,9 +9,17 @@ from pydantic import BaseModel, Field, computed_field
 
 
 class License(BaseModel):
-    """License information for a media item or source."""
+    """License information for a media item or source.
 
-    spdx: str = Field(..., description="SPDX license identifier")
+    Supports both SPDX licenses (for open-source) and named licenses (for APIs).
+    """
+
+    # Either spdx OR name should be provided
+    spdx: str | None = Field(default=None, description="SPDX license identifier")
+    name: str | None = Field(default=None, description="License name (for non-SPDX)")
+    url: str | None = Field(default=None, description="License URL")
+    terms_url: str | None = Field(default=None, description="Terms of service URL")
+    api_guidelines: str | None = Field(default=None, description="API guidelines URL")
     attribution_required: bool = Field(default=False)
     attribution_notice: str | None = Field(default=None)
     commercial_ok: bool = Field(default=True)
@@ -23,6 +31,11 @@ class License(BaseModel):
     def requires_attribution(self) -> bool:
         """Check if attribution is required for use."""
         return self.attribution_required or self.share_alike
+
+    @property
+    def display_name(self) -> str:
+        """Get display name for the license."""
+        return self.name or self.spdx or "Unknown License"
 
 
 class Source(BaseModel):
