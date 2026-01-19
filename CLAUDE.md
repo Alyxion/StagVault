@@ -12,6 +12,11 @@ Detailed documentation is available in the `docs/` directory:
 - [docs/providers.md](docs/providers.md) - External API provider overview with license links
 - [docs/configuration.md](docs/configuration.md) - YAML source configuration reference
 - [docs/aliases.md](docs/aliases.md) - Alias system for human-readable names and search terms
+- [docs/cli-modes.md](docs/cli-modes.md) - CLI testing modes (Python, REST, Static)
+- [docs/source-hierarchy.md](docs/source-hierarchy.md) - Source tree hierarchy (max 2 levels)
+- [docs/filtering.md](docs/filtering.md) - Filtering system design
+- [docs/static-site.md](docs/static-site.md) - Static site architecture
+- [docs/testing.md](docs/testing.md) - Testing requirements and coverage
 
 ## Tech Stack
 
@@ -586,9 +591,89 @@ Based on the icon datasets summary, prioritize:
 5. **simple-icons** - CC0, 3000 brand icons
 6. **noto-emoji** - OFL 1.1, full Unicode emoji
 
+## CLI Testing Modes
+
+StagVault maintains CLI testing in **3 modes** to ensure consistent behavior:
+
+| Mode | Command | Use Case |
+|------|---------|----------|
+| **Python** | `--mode python` | Direct API, full features |
+| **REST** | `--mode rest` | FastAPI endpoints |
+| **Static** | `--mode static` | Same as static website |
+
+**Static mode limitations**: No dynamic sources (Pexels, Pixabay, Unsplash) - git sources only.
+
+See [docs/cli-modes.md](docs/cli-modes.md) for details.
+
+## Source Hierarchy
+
+Sources organized in **max 2-level tree**:
+
+```
+Vector/
+├── Icons/
+│   ├── phosphor-icons
+│   ├── lucide
+│   ├── heroicons
+│   └── ...
+└── Emoji/
+    └── noto-emoji
+```
+
+- Checkbox at each level enables/disables all children
+- Shows item counts per node
+- Consistent between CLI, REST, and static modes
+
+See [docs/source-hierarchy.md](docs/source-hierarchy.md) for details.
+
+## Filtering Design
+
+**Only two sidebar filters:**
+
+1. **Source tree** (hierarchical, 2 levels max)
+2. **License** (flat list)
+
+**Categories are filtered via search word, NOT sidebar.**
+
+```bash
+# CLI filtering examples
+stagvault search "arrow" --source phosphor-icons --license MIT
+stagvault search "arrow" --exclude-source heroicons
+```
+
+See [docs/filtering.md](docs/filtering.md) for details.
+
+## Static Site
+
+Static mode supports **git sources only** (no Pexels/Pixabay/Unsplash).
+
+**Critical requirement**: Python and JS filtering must behave identically.
+
+Data files:
+- `sources.json` - Source metadata
+- `licenses.json` - License types
+- `search/{prefix}.json` - 700 prefix-based search files
+
+See [docs/static-site.md](docs/static-site.md) for details.
+
+## Test Coverage
+
+**100% unit test coverage required.** Tests must verify:
+
+- Search "US" → US flags (waved + flat) as top results
+- Search "DE" → German flags as top results
+- Parity across all 3 modes (Python, REST, Static)
+
+```bash
+poetry run pytest --cov=stagvault --cov-report=html
+```
+
+See [docs/testing.md](docs/testing.md) for details.
+
 ## File Locations
 
 - Source configs: `configs/sources/*.yaml`
 - Downloaded data: `data/{source-id}/` (git-ignored)
 - Search index: `index/stagvault.db` (git-ignored)
 - Static export: `static/index.json`
+- Static site: `static_site/index/`

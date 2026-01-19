@@ -608,27 +608,88 @@
             border-radius: 6px;
             font-size: 0.9rem;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: background 0.2s, transform 0.1s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
         }
 
         .btn-primary {
-            background: var(--accent);
+            background: #22c55e;
             color: white;
             border: none;
+            font-weight: 500;
         }
 
         .btn-primary:hover {
-            background: var(--accent-hover);
+            background: #16a34a;
+            transform: translateY(-1px);
         }
 
         .btn-secondary {
-            background: transparent;
+            background: var(--bg-tertiary);
             color: var(--text);
             border: 1px solid var(--border);
         }
 
         .btn-secondary:hover {
-            background: var(--bg);
+            background: var(--border);
+        }
+
+        .download-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .download-menu {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 0;
+            min-width: 160px;
+            margin-bottom: 8px;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .download-menu.active {
+            display: block;
+        }
+
+        .download-menu-item {
+            display: block;
+            width: 100%;
+            padding: 10px 16px;
+            text-align: left;
+            background: none;
+            border: none;
+            color: var(--text);
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        .download-menu-item:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .download-menu-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 6px 0;
+        }
+
+        .download-menu-header {
+            padding: 6px 16px;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         /* Responsive */
@@ -677,14 +738,6 @@
                 <span class="toggle" id="licensesToggle">-</span>
             </div>
             <div class="filter-list" id="licensesList"></div>
-        </div>
-
-        <div class="filter-section" id="categoriesSection">
-            <div class="filter-section-header" onclick="stagvault.toggleSection('categories')">
-                <h3>Categories</h3>
-                <span class="toggle" id="categoriesToggle">-</span>
-            </div>
-            <div class="filter-list" id="categoriesList"></div>
         </div>
 
         <button class="clear-filters" onclick="stagvault.clearAllFilters()">Clear All Filters</button>

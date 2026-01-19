@@ -6,7 +6,7 @@ import json
 import logging
 import shutil
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -73,10 +73,13 @@ class StaticIndexBuilder:
             "thumbnails_copied": 0,
         }
 
-        # Copy thumbnails if requested
+        # Copy thumbnails if requested, or scan for existing ones
         thumb_map: dict[str, str] = {}
         if include_thumbnails and self.data_dir:
             stats["thumbnails_copied"], thumb_map = self._copy_thumbnails(items)
+        else:
+            # Scan for existing thumbnails even if not copying
+            thumb_map = self._scan_existing_thumbnails(items)
 
         # Build source index
         stats["sources"] = self._build_sources_index(items, sources)
@@ -159,12 +162,36 @@ class StaticIndexBuilder:
 
         return copied, thumb_map
 
+    def _scan_existing_thumbnails(
+        self,
+        items: list[MediaItem],
+    ) -> dict[str, str]:
+        """Scan for existing thumbnails without copying.
+
+        Returns:
+            Mapping of item_id to thumb URL for items with existing thumbnails.
+        """
+        thumb_map: dict[str, str] = {}
+
+        for item in items:
+            prefix = item.id[:2] if len(item.id) >= 2 else item.id
+
+            # Check for existing thumbnails (64px for grid view)
+            for ext in ["jpg", "png"]:
+                preview_filename = f"{item.id}_{PREVIEW_THUMB_SIZE}.{ext}"
+                thumb_path = self.thumbs_dir / item.source_id / prefix / preview_filename
+                if thumb_path.exists():
+                    thumb_map[item.id] = f"thumbs/{item.source_id}/{prefix}/{preview_filename}"
+                    break
+
+        return thumb_map
+
     def _build_sources_index(
         self,
         items: list[MediaItem],
         sources: dict[str, dict],
     ) -> int:
-        """Build sources.json with source metadata and item counts."""
+        """Build sources.json with source metadata, item counts, and hierarchy tree."""
         source_counts: dict[str, int] = defaultdict(int)
         source_tags: dict[str, set] = defaultdict(set)
 
@@ -174,8 +201,14 @@ class StaticIndexBuilder:
                 source_tags[item.source_id].add(tag)
 
         source_list = []
+        # Build hierarchy tree: category -> subcategory -> [source_ids]
+        tree: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+
         for source_id, count in sorted(source_counts.items()):
             meta = sources.get(source_id, {})
+            category = meta.get("category", "Other")
+            subcategory = meta.get("subcategory", "Other")
+
             source_list.append({
                 "id": source_id,
                 "name": meta.get("name", source_id),
@@ -183,9 +216,22 @@ class StaticIndexBuilder:
                 "type": meta.get("type", "git"),
                 "tags": sorted(source_tags[source_id]),
                 "license": meta.get("license", "unknown"),
+                "category": category,
+                "subcategory": subcategory,
             })
 
-        self._write_json(self.output_dir / "sources.json", source_list)
+            # Add to tree
+            tree[category][subcategory].append(source_id)
+
+        # Convert tree to regular dict for JSON serialization
+        tree_dict = {cat: dict(subcats) for cat, subcats in tree.items()}
+
+        # Write sources with tree
+        output = {
+            "sources": source_list,
+            "tree": tree_dict,
+        }
+        self._write_json(self.output_dir / "sources.json", output)
         return len(source_list)
 
     def _build_licenses_index(self, items: list[MediaItem]) -> int:
@@ -250,7 +296,7 @@ class StaticIndexBuilder:
                 "t": item.tags[:5] if item.tags else [],  # top 5 tags
             }
 
-            # Add preview URL - prefer thumbnail, fall back to metadata
+            # Add preview URL - prefer thumbnail, fall back to metadata or CDN
             thumb_url = thumb_map.get(item.id)
             if thumb_url:
                 compact["p"] = thumb_url
@@ -258,6 +304,11 @@ class StaticIndexBuilder:
                 preview_url = item.metadata.get("preview_url") if item.metadata else None
                 if preview_url:
                     compact["p"] = preview_url
+                elif item.source_id == "noto-emoji" and item.path:
+                    # Fallback: construct CDN URL for noto-emoji from path
+                    # Path format: images/noto/cpngs/emoji_u{code}.png
+                    filename = item.path.split("/")[-1]
+                    compact["p"] = f"https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/128/{filename}"
 
             # Add style if present
             if item.style:
@@ -296,12 +347,6 @@ class StaticIndexBuilder:
         # Write prefix files
         manifest = []
         for prefix, prefix_item_list in sorted(prefix_items.items()):
-            # Skip very common prefixes that would create huge files
-            # (they can search with 3+ chars instead)
-            if len(prefix_item_list) > 5000:
-                logger.info(f"Skipping prefix '{prefix}' with {len(prefix_item_list)} items (too common)")
-                continue
-
             filename = f"{prefix}.json"
             self._write_json(
                 self.search_dir / filename,
@@ -322,7 +367,7 @@ class StaticIndexBuilder:
         """Build meta.json with index metadata."""
         meta = {
             "version": 1,
-            "generated": datetime.utcnow().isoformat() + "Z",
+            "generated": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "stats": stats,
         }
         self._write_json(self.output_dir / "meta.json", meta)

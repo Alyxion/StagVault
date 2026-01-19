@@ -2,6 +2,8 @@ id: material-design
 name: Material Design Icons (Community)
 description: Extended community version of Google's Material Design Icons
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: Templarian/MaterialDesign

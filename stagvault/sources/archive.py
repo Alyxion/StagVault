@@ -179,6 +179,11 @@ class ArchiveSourceHandler(SourceHandler):
             if item_license != self.config.license:
                 per_item_license = item_license
 
+            # Construct preview URL from CDN (Google Noto Emoji on GitHub)
+            # Use the actual image filename from the path we found
+            actual_filename = image_path.name
+            preview_url = f"https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/128/{actual_filename}"
+
             # Build item
             item = MediaItem(
                 source_id=self.config.id,
@@ -193,6 +198,7 @@ class ArchiveSourceHandler(SourceHandler):
                     "group": group,
                     "subgroup": subgroup,
                     "markdown": markdown_name,
+                    "preview_url": preview_url,
                 },
             )
             items.append(item)

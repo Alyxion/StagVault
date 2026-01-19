@@ -2,6 +2,8 @@ id: twemoji
 name: Twemoji
 description: Twitter/X emoji with full Unicode coverage
 type: git
+category: Vector
+subcategory: Emoji
 
 git:
   repo: twitter/twemoji

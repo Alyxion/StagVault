@@ -2,6 +2,8 @@ id: fluent-emoji
 name: Fluent Emoji
 description: Microsoft's Fluent Emoji with full Unicode coverage
 type: git
+category: Vector
+subcategory: Emoji
 
 git:
   repo: microsoft/fluentui-emoji

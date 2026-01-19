@@ -2,6 +2,8 @@ id: lucide
 name: Lucide Icons
 description: Beautiful & consistent icons - Fork of Feather Icons
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: lucide-icons/lucide

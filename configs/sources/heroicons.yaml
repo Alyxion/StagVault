@@ -2,6 +2,8 @@ id: heroicons
 name: Heroicons
 description: Beautiful hand-crafted SVG icons by the makers of Tailwind CSS
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: tailwindlabs/heroicons

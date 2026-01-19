@@ -2,6 +2,8 @@ id: tabler-icons
 name: Tabler Icons
 description: Over 5000 free MIT-licensed high-quality SVG icons
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: tabler/tabler-icons

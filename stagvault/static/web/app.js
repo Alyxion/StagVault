@@ -20,7 +20,6 @@ class StagVault {
         // Filter state - these track EXCLUDED items (unchecked = excluded)
         this.excludedSources = new Set();
         this.excludedLicenses = new Set();
-        this.excludedCategories = new Set();
 
         // Expanded tree nodes
         this.expandedNodes = new Set(['Vector', 'Icons', 'Emoji']);
@@ -49,13 +48,6 @@ class StagVault {
             'tabler-icons': 'monochrome',
         };
 
-        // Top categories to show in sidebar
-        this.topCategories = [
-            'icon', 'ui', 'emoji', 'arrow', 'user', 'file', 'media',
-            'communication', 'weather', 'animal', 'food', 'travel',
-            'flags', 'symbols', 'objects', 'activities'
-        ];
-
         // Source hierarchy tree
         this.sourceTree = {
             'Vector': {
@@ -74,14 +66,22 @@ class StagVault {
 
     async init() {
         try {
-            const [sources, licenses, tags, manifest] = await Promise.all([
+            const [sourcesData, licenses, tags, manifest] = await Promise.all([
                 this.fetchJSON(`${this.indexBase}/sources.json`),
                 this.fetchJSON(`${this.indexBase}/licenses.json`).catch(() => []),
                 this.fetchJSON(`${this.indexBase}/tags.json`),
                 this.fetchJSON(`${this.indexBase}/search/_manifest.json`),
             ]);
 
-            this.sources = sources;
+            // Handle both old format (array) and new format ({ sources: [], tree: {} })
+            if (Array.isArray(sourcesData)) {
+                this.sources = sourcesData;
+            } else {
+                this.sources = sourcesData.sources || [];
+                if (sourcesData.tree) {
+                    this.sourceTree = sourcesData.tree;
+                }
+            }
             this.licenses = licenses;
             this.tags = tags;
             this.prefixManifest = manifest;
@@ -105,7 +105,7 @@ class StagVault {
     populateSidebar() {
         this.renderSourcesTree();
         this.renderLicenses();
-        this.renderCategories();
+        // Categories are filtered via search word, not sidebar
     }
 
     renderSourcesTree() {
@@ -443,27 +443,6 @@ class StagVault {
         this.attachFilterHandlers('licensesList', 'license', this.excludedLicenses);
     }
 
-    renderCategories() {
-        const tagMap = new Map(this.tags.map(t => [t.tag, t.count]));
-        const container = document.getElementById('categoriesList');
-        const availableCategories = this.topCategories.filter(c => tagMap.has(c));
-
-        container.innerHTML = availableCategories
-            .map(cat => {
-                const count = tagMap.get(cat) || 0;
-                const isChecked = !this.excludedCategories.has(cat);
-                return `
-                    <div class="filter-item${isChecked ? '' : ' excluded'}" data-id="${cat}" data-type="category">
-                        <input type="checkbox" id="category-${cat}" ${isChecked ? 'checked' : ''}>
-                        <label for="category-${cat}">${cat}</label>
-                        <span class="filter-count" data-category="${cat}">${count.toLocaleString()}</span>
-                    </div>
-                `;
-            }).join('');
-
-        this.attachFilterHandlers('categoriesList', 'category', this.excludedCategories);
-    }
-
     attachFilterHandlers(containerId, type, excludedSet) {
         document.querySelectorAll(`#${containerId} .filter-item`).forEach(item => {
             const checkbox = item.querySelector('input[type="checkbox"]');
@@ -509,9 +488,6 @@ class StagVault {
         this.excludedLicenses.forEach(id => {
             filters.push({ type: 'license', id, label: `−${id}` });
         });
-        this.excludedCategories.forEach(id => {
-            filters.push({ type: 'category', id, label: `−${id}` });
-        });
 
         container.innerHTML = filters.map(f => `
             <span class="active-filter-tag excluded">
@@ -525,7 +501,7 @@ class StagVault {
         let set;
         if (type === 'source') set = this.excludedSources;
         else if (type === 'license') set = this.excludedLicenses;
-        else set = this.excludedCategories;
+        else return; // Only source and license filters supported
 
         set.delete(id);
 
@@ -547,7 +523,6 @@ class StagVault {
     clearAllFilters() {
         this.excludedSources.clear();
         this.excludedLicenses.clear();
-        this.excludedCategories.clear();
 
         document.querySelectorAll('.filter-item').forEach(item => {
             item.classList.remove('excluded');
@@ -687,15 +662,6 @@ class StagVault {
                 if (this.excludedLicenses.has(itemLicense)) return false;
             }
 
-            // Category filter - exclude if ALL categories are excluded that the item has
-            if (this.excludedCategories.size > 0) {
-                const itemTags = item.t || [];
-                const relevantTags = itemTags.filter(t => this.topCategories.includes(t));
-                if (relevantTags.length > 0 && relevantTags.every(t => this.excludedCategories.has(t))) {
-                    return false;
-                }
-            }
-
             return true;
         });
     }
@@ -813,7 +779,7 @@ class StagVault {
             document.getElementById('statsText').innerHTML =
                 `Found <strong>${results.length.toLocaleString()}</strong> icons for "${this.escapeHtml(query)}"`;
         } else {
-            const hasExclusions = this.excludedSources.size + this.excludedLicenses.size + this.excludedCategories.size > 0;
+            const hasExclusions = this.excludedSources.size + this.excludedLicenses.size > 0;
             if (hasExclusions) {
                 document.getElementById('statsText').innerHTML =
                     `Showing <strong>${results.length.toLocaleString()}</strong> filtered icons`;
@@ -943,7 +909,9 @@ class StagVault {
             ? `<a href="${licenseUrl}" target="_blank" rel="noopener">${this.escapeHtml(license)}</a>`
             : this.escapeHtml(license);
 
-        const downloadUrl = this.originalImageUrl || item.p;
+        // Determine file format from thumbnail path or source
+        const isSvgSource = this.isSvgSource(item.s);
+        const downloadButton = this.renderDownloadButton(item, isSvgSource);
 
         infoContainer.innerHTML = `
             <h2>${this.escapeHtml(item.n)}</h2>
@@ -954,18 +922,367 @@ class StagVault {
             </p>
             ${tags ? `<div class="result-tags">${tags}</div>` : ''}
             <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="stagvault.copyToClipboard('${item.id}')">
-                    Copy ID
-                </button>
-                ${downloadUrl ? `
-                    <a href="${downloadUrl}" target="_blank" class="btn btn-primary">
-                        Download
-                    </a>
-                ` : ''}
+                ${downloadButton}
             </div>
         `;
 
         document.getElementById('modalOverlay').classList.add('active');
+    }
+
+    isSvgSource(sourceId) {
+        // Icon sources that are SVG-based
+        const svgSources = new Set([
+            'phosphor-icons', 'lucide', 'heroicons', 'feather', 'tabler-icons',
+            'bootstrap-icons', 'ionicons', 'octicons', 'boxicons', 'eva-icons',
+            'iconoir', 'remix-icon', 'simple-icons', 'material-design'
+        ]);
+        return svgSources.has(sourceId);
+    }
+
+    renderDownloadButton(item, isSvgSource) {
+        if (isSvgSource) {
+            return `
+                <div class="download-dropdown">
+                    <button class="btn btn-primary" onclick="stagvault.toggleDownloadMenu(event)">
+                        ↓ Download
+                    </button>
+                    <div class="download-menu" id="downloadMenu">
+                        <div class="download-menu-header">Vector</div>
+                        <button class="download-menu-item" onclick="stagvault.downloadSvg()">
+                            SVG (Original)
+                        </button>
+                        <div class="download-menu-divider"></div>
+                        <div class="download-menu-header">PNG Export</div>
+                        <button class="download-menu-item" onclick="stagvault.downloadPng(128)">
+                            PNG 128×128
+                        </button>
+                        <button class="download-menu-item" onclick="stagvault.downloadPng(256)">
+                            PNG 256×256
+                        </button>
+                        <button class="download-menu-item" onclick="stagvault.downloadPng(512)">
+                            PNG 512×512
+                        </button>
+                    </div>
+                </div>
+            `;
+        } else {
+            // For raster images (emoji, photos), just download original
+            const downloadUrl = this.originalImageUrl || item.p;
+            if (!downloadUrl) return '';
+            return `
+                <button class="btn btn-primary" onclick="stagvault.downloadOriginal()">
+                    ↓ Download
+                </button>
+            `;
+        }
+    }
+
+    toggleDownloadMenu(event) {
+        event.stopPropagation();
+        const menu = document.getElementById('downloadMenu');
+        menu.classList.toggle('active');
+
+        // Close menu when clicking outside
+        const closeMenu = (e) => {
+            if (!menu.contains(e.target) && !e.target.closest('.download-dropdown')) {
+                menu.classList.remove('active');
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeMenu), 0);
+    }
+
+    async downloadSvg() {
+        if (!this.currentItem) return;
+
+        const item = this.currentItem;
+        // Construct SVG URL from source and item info
+        const svgUrl = this.getSvgUrl(item);
+
+        if (!svgUrl) {
+            this.showToast('SVG not available');
+            return;
+        }
+
+        try {
+            const response = await fetch(svgUrl);
+            if (!response.ok) throw new Error('Failed to fetch SVG');
+
+            let svgText = await response.text();
+
+            // Apply colorization if enabled
+            if (this.colorizeEnabled) {
+                svgText = this.colorizeSvg(svgText);
+            }
+
+            // Download
+            const blob = new Blob([svgText], { type: 'image/svg+xml' });
+            this.downloadBlob(blob, `${this.sanitizeFilename(item.n)}.svg`);
+            this.showToast('SVG downloaded!');
+        } catch (error) {
+            console.error('SVG download failed:', error);
+            this.showToast('Download failed');
+        }
+
+        document.getElementById('downloadMenu').classList.remove('active');
+    }
+
+    getSvgUrl(item) {
+        // Construct SVG URL based on source repository structure
+        const name = item.n.toLowerCase().replace(/\s+/g, '-');
+        const style = item.y || 'regular';
+
+        // Source-specific URL patterns
+        const urlBuilders = {
+            'phosphor-icons': () => {
+                // Phosphor uses: assets/{weight}/{name}.svg
+                const weight = style === 'regular' ? 'regular' : style;
+                return `https://raw.githubusercontent.com/phosphor-icons/core/main/assets/${weight}/${name}.svg`;
+            },
+            'lucide': () => {
+                // Lucide uses: icons/{name}.svg
+                return `https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/${name}.svg`;
+            },
+            'feather': () => {
+                // Feather uses: icons/{name}.svg
+                return `https://raw.githubusercontent.com/feathericons/feather/main/icons/${name}.svg`;
+            },
+            'heroicons': () => {
+                // Heroicons uses: src/{style}/24/{style}/{name}.svg
+                const heroStyle = style === 'solid' ? 'solid' : 'outline';
+                return `https://raw.githubusercontent.com/tailwindlabs/heroicons/master/src/24/${heroStyle}/${name}.svg`;
+            },
+            'tabler-icons': () => {
+                // Tabler uses: icons/outline/{name}.svg or icons/filled/{name}.svg
+                const tablerStyle = style === 'filled' ? 'filled' : 'outline';
+                return `https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/${tablerStyle}/${name}.svg`;
+            },
+            'bootstrap-icons': () => {
+                return `https://raw.githubusercontent.com/twbs/icons/main/icons/${name}.svg`;
+            },
+            'ionicons': () => {
+                return `https://raw.githubusercontent.com/ionic-team/ionicons/main/src/svg/${name}.svg`;
+            },
+            'octicons': () => {
+                return `https://raw.githubusercontent.com/primer/octicons/main/icons/${name}-24.svg`;
+            },
+            'simple-icons': () => {
+                return `https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/${name}.svg`;
+            },
+            'remix-icon': () => {
+                // RemixIcon has category folders, try common pattern
+                return `https://raw.githubusercontent.com/Remix-Design/RemixIcon/master/icons/System/${name}.svg`;
+            },
+        };
+
+        const builder = urlBuilders[item.s];
+        if (builder) {
+            return builder();
+        }
+
+        return null;
+    }
+
+    colorizeSvg(svgText) {
+        // Replace fill and stroke colors in SVG
+        const color = this.primaryColor;
+
+        // Replace currentColor
+        svgText = svgText.replace(/currentColor/gi, color);
+
+        // Replace black/dark fills (but preserve 'none')
+        svgText = svgText.replace(/fill="(?!none)(#[0-9a-fA-F]{3,6}|black|rgb\([^)]+\))"/gi, `fill="${color}"`);
+
+        // Replace strokes
+        svgText = svgText.replace(/stroke="(?!none)(#[0-9a-fA-F]{3,6}|black|currentColor|rgb\([^)]+\))"/gi, `stroke="${color}"`);
+
+        return svgText;
+    }
+
+    async downloadPng(size) {
+        if (!this.currentItem) return;
+
+        const item = this.currentItem;
+        document.getElementById('downloadMenu').classList.remove('active');
+
+        try {
+            // For SVG sources, render fresh from SVG
+            const svgUrl = this.getSvgUrl(item);
+
+            if (svgUrl) {
+                await this.renderSvgToPng(svgUrl, size, item.n);
+            } else {
+                // Fallback: try to use the thumbnail but warn about quality
+                this.showToast('SVG not available, using thumbnail');
+                await this.renderImageToPng(size, item.n);
+            }
+        } catch (error) {
+            console.error('PNG export failed:', error);
+            this.showToast('Export failed');
+        }
+    }
+
+    async renderSvgToPng(svgUrl, size, name) {
+        // Fetch the SVG
+        const response = await fetch(svgUrl);
+        if (!response.ok) throw new Error('Failed to fetch SVG');
+
+        let svgText = await response.text();
+
+        // Apply colorization if enabled
+        if (this.colorizeEnabled) {
+            svgText = this.colorizeSvg(svgText);
+        }
+
+        // Parse SVG to get dimensions
+        const parser = new DOMParser();
+        const svgDoc = parser.parseFromString(svgText, 'image/svg+xml');
+        const svgEl = svgDoc.documentElement;
+
+        // Set explicit size on SVG for proper rendering
+        svgEl.setAttribute('width', size);
+        svgEl.setAttribute('height', size);
+
+        // Serialize back to string
+        const serializer = new XMLSerializer();
+        const svgString = serializer.serializeToString(svgEl);
+
+        // Create blob URL for the SVG
+        const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+        const svgBlobUrl = URL.createObjectURL(svgBlob);
+
+        // Create canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        // Render SVG to canvas
+        const img = new Image();
+
+        await new Promise((resolve, reject) => {
+            img.onload = () => {
+                // Clear canvas (transparent background)
+                ctx.clearRect(0, 0, size, size);
+
+                // Draw SVG centered
+                ctx.drawImage(img, 0, 0, size, size);
+
+                URL.revokeObjectURL(svgBlobUrl);
+                resolve();
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(svgBlobUrl);
+                reject(new Error('Failed to load SVG'));
+            };
+            img.src = svgBlobUrl;
+        });
+
+        // Export as PNG
+        canvas.toBlob((blob) => {
+            if (blob) {
+                this.downloadBlob(blob, `${this.sanitizeFilename(name)}_${size}.png`);
+                this.showToast(`PNG ${size}×${size} downloaded!`);
+            }
+        }, 'image/png');
+    }
+
+    async renderImageToPng(size, name) {
+        const previewImage = document.getElementById('previewImage');
+
+        // Create canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        // Load from original URL (not the displayed one which may have checkerboard)
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = this.originalImageUrl || previewImage.src;
+        });
+
+        // Clear canvas (transparent)
+        ctx.clearRect(0, 0, size, size);
+
+        // Calculate scaling to fit while maintaining aspect ratio
+        const scale = Math.min(size / img.naturalWidth, size / img.naturalHeight);
+        const w = img.naturalWidth * scale;
+        const h = img.naturalHeight * scale;
+        const x = (size - w) / 2;
+        const y = (size - h) / 2;
+
+        ctx.drawImage(img, x, y, w, h);
+
+        // Apply colorization if enabled
+        if (this.colorizeEnabled) {
+            const imageData = ctx.getImageData(0, 0, size, size);
+            const data = imageData.data;
+            const primary = this.hexToRgb(this.primaryColor);
+            const secondary = this.hexToRgb(this.secondaryColor);
+
+            if (this.colorMode === 'duotone') {
+                this.applyDuotone(data, primary, secondary);
+            } else if (this.colorMode === 'grayscale') {
+                this.applyMultiply(data, primary);
+            } else {
+                this.applyReplace(data, primary);
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        // Export as PNG
+        canvas.toBlob((blob) => {
+            if (blob) {
+                this.downloadBlob(blob, `${this.sanitizeFilename(name)}_${size}.png`);
+                this.showToast(`PNG ${size}×${size} downloaded!`);
+            }
+        }, 'image/png');
+    }
+
+    async downloadOriginal() {
+        if (!this.currentItem) return;
+
+        const item = this.currentItem;
+        const url = this.originalImageUrl || item.p;
+
+        if (!url) {
+            this.showToast('Download not available');
+            return;
+        }
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Failed to fetch');
+
+            const blob = await response.blob();
+            const ext = url.includes('.png') ? 'png' : url.includes('.svg') ? 'svg' : 'jpg';
+            this.downloadBlob(blob, `${this.sanitizeFilename(item.n)}.${ext}`);
+            this.showToast('Downloaded!');
+        } catch (error) {
+            // Fallback: open in new tab
+            window.open(url, '_blank');
+        }
+    }
+
+    downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    sanitizeFilename(name) {
+        return name.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_').slice(0, 50);
     }
 
     detectAndUpdateColorMode(img) {

@@ -2,6 +2,8 @@ id: ionicons
 name: Ionicons
 description: Premium designed icons for use in web, iOS, Android, and desktop apps
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: ionic-team/ionicons

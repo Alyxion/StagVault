@@ -2,6 +2,8 @@ id: bootstrap-icons
 name: Bootstrap Icons
 description: Official open source SVG icon library for Bootstrap
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: twbs/icons

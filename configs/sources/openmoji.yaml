@@ -2,6 +2,8 @@ id: openmoji
 name: OpenMoji
 description: Open source emojis for everyone
 type: git
+category: Vector
+subcategory: Emoji
 
 git:
   repo: hfg-gmuend/openmoji

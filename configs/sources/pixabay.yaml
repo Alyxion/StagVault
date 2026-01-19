@@ -2,6 +2,8 @@ id: pixabay
 name: Pixabay
 description: Free images & royalty-free stock photos
 type: api
+category: Photos
+subcategory: Stock
 
 api:
   base_url: https://pixabay.com/api/

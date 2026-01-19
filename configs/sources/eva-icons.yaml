@@ -2,6 +2,8 @@ id: eva-icons
 name: Eva Icons
 description: A pack of more than 480 beautifully crafted Open Source icons
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: akveo/eva-icons

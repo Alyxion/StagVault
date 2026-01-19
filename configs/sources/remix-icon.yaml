@@ -2,6 +2,8 @@ id: remix-icon
 name: Remix Icon
 description: Open source neutral style system symbols
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: Remix-Design/RemixIcon

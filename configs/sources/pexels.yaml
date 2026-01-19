@@ -2,6 +2,8 @@ id: pexels
 name: Pexels
 description: Free stock photos & videos shared by talented creators
 type: api
+category: Photos
+subcategory: Stock
 
 api:
   base_url: https://api.pexels.com/v1/

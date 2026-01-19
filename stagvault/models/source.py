@@ -68,6 +68,10 @@ class SourceConfig(BaseModel):
     description: str | None = None
     source_type: str = Field(..., alias="type")
 
+    # Hierarchy fields (max 2 levels)
+    category: str = Field(default="Other", description="Top-level category (e.g., Vector, Photos)")
+    subcategory: str = Field(default="Other", description="Subcategory (e.g., Icons, Emoji, Stock)")
+
     # Git source config
     git: GitConfig | None = None
     paths: list[PathConfig] = Field(default_factory=list)

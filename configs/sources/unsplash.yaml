@@ -2,6 +2,8 @@ id: unsplash
 name: Unsplash
 description: Beautiful free images and pictures from the world's most generous community of photographers
 type: api
+category: Photos
+subcategory: Stock
 
 api:
   base_url: https://api.unsplash.com/

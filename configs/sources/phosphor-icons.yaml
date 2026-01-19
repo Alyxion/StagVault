@@ -2,6 +2,8 @@ id: phosphor-icons
 name: Phosphor Icons
 description: A flexible icon family for interfaces, diagrams, presentations
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: phosphor-icons/core

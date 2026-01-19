@@ -2,6 +2,8 @@ id: boxicons
 name: Boxicons
 description: High quality web icons set with 1600+ icons
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: atisawd/boxicons

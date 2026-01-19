@@ -2,6 +2,8 @@ id: feather
 name: Feather Icons
 description: Simply beautiful open source icons
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: feathericons/feather

@@ -2,6 +2,8 @@ id: simple-icons
 name: Simple Icons
 description: SVG icons for popular brands
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: simple-icons/simple-icons

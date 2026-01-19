@@ -2,6 +2,8 @@ id: iconoir
 name: Iconoir
 description: An open source SVG icon library with 1500+ icons
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: iconoir-icons/iconoir

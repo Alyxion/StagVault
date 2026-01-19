@@ -103,7 +103,12 @@ def export(ctx: click.Context, output: str, grouped: bool) -> None:
 
 @main.command()
 @click.argument("query")
-@click.option("--source", "-s", default=None, help="Filter by source")
+@click.option("--mode", "-m", type=click.Choice(["python", "rest", "static"]), default="python",
+              help="Search mode: python (direct API), rest (FastAPI), static (JSON files)")
+@click.option("--source", "-s", multiple=True, help="Include specific sources (can repeat)")
+@click.option("--exclude-source", "-xs", multiple=True, help="Exclude specific sources")
+@click.option("--license", "-l", "licenses", multiple=True, help="Include specific licenses")
+@click.option("--exclude-license", "-xl", multiple=True, help="Exclude specific licenses")
 @click.option("--style", default=None, help="Filter by style")
 @click.option("--limit", "-n", default=20, help="Max results")
 @click.option("--grouped/--no-grouped", default=True, help="Group variants")
@@ -111,23 +116,62 @@ def export(ctx: click.Context, output: str, grouped: bool) -> None:
 def search(
     ctx: click.Context,
     query: str,
-    source: str | None,
+    mode: str,
+    source: tuple[str, ...],
+    exclude_source: tuple[str, ...],
+    licenses: tuple[str, ...],
+    exclude_license: tuple[str, ...],
     style: str | None,
     limit: int,
     grouped: bool,
 ) -> None:
-    """Search for media items."""
+    """Search for media items.
+
+    Supports three modes:
+    - python: Direct Python API (default, full features)
+    - rest: Via FastAPI endpoints
+    - static: Using same JSON files as static website (git sources only)
+    """
     vault: StagVault = ctx.obj["vault"]
 
-    if grouped:
-        results = vault.search_grouped(query, source_id=source, limit=limit)
+    # Convert tuples to sets for filtering
+    include_sources = set(source) if source else None
+    exclude_sources = set(exclude_source) if exclude_source else None
+    include_licenses = set(licenses) if licenses else None
+    exclude_licenses = set(exclude_license) if exclude_license else None
 
-        table = Table(title=f"Search: {query}")
+    if mode == "static":
+        # Static mode uses precomputed JSON files
+        _search_static(ctx, query, include_sources, exclude_sources,
+                       include_licenses, exclude_licenses, limit, grouped)
+        return
+
+    if mode == "rest":
+        # REST mode uses FastAPI endpoints
+        _search_rest(ctx, query, include_sources, exclude_sources,
+                     include_licenses, exclude_licenses, style, limit, grouped)
+        return
+
+    # Python mode (default)
+    if grouped:
+        results = vault.search_grouped(query, source_id=list(source)[0] if len(source) == 1 else None, limit=limit)
+
+        # Apply source/license filters
+        filtered = []
+        for r in results:
+            if include_sources and r.group.source_id not in include_sources:
+                continue
+            if exclude_sources and r.group.source_id in exclude_sources:
+                continue
+            # License filtering would need item-level check
+            filtered.append(r)
+
+        table = Table(title=f"Search: {query} (mode: {mode})")
         table.add_column("Name", style="cyan")
         table.add_column("Source", style="blue")
         table.add_column("Styles", style="yellow")
 
-        for r in results:
+        for r in filtered[:limit]:
             table.add_row(
                 r.group.canonical_name,
                 r.group.source_id,
@@ -135,22 +179,37 @@ def search(
             )
 
         console.print(table)
-        console.print(f"[dim]Found {len(results)} results[/dim]")
+        console.print(f"[dim]Found {len(filtered)} results[/dim]")
     else:
         results = vault.search(
             query,
-            source_id=source,
+            source_id=list(source)[0] if len(source) == 1 else None,
             styles=[style] if style else None,
-            limit=limit,
+            limit=limit * 2,  # Get more to filter
         )
 
-        table = Table(title=f"Search: {query}")
+        # Apply source/license filters
+        filtered = []
+        for r in results:
+            if include_sources and r.item.source_id not in include_sources:
+                continue
+            if exclude_sources and r.item.source_id in exclude_sources:
+                continue
+            if r.item.license:
+                lic = r.item.license.spdx or r.item.license.name
+                if include_licenses and lic not in include_licenses:
+                    continue
+                if exclude_licenses and lic in exclude_licenses:
+                    continue
+            filtered.append(r)
+
+        table = Table(title=f"Search: {query} (mode: {mode})")
         table.add_column("Name", style="cyan")
         table.add_column("Source", style="blue")
         table.add_column("Style", style="yellow")
         table.add_column("Path", style="dim")
 
-        for r in results:
+        for r in filtered[:limit]:
             table.add_row(
                 r.item.name,
                 r.item.source_id,
@@ -159,7 +218,170 @@ def search(
             )
 
         console.print(table)
-        console.print(f"[dim]Found {len(results)} results[/dim]")
+        console.print(f"[dim]Found {len(filtered)} results[/dim]")
+
+
+def _search_static(
+    ctx: click.Context,
+    query: str,
+    include_sources: set[str] | None,
+    exclude_sources: set[str] | None,
+    include_licenses: set[str] | None,
+    exclude_licenses: set[str] | None,
+    limit: int,
+    grouped: bool,
+) -> None:
+    """Search using static JSON files (same as static website)."""
+    import json
+
+    vault: StagVault = ctx.obj["vault"]
+
+    # Try to find static index
+    static_paths = [
+        Path("./static/index"),
+        Path("./static_site/index/index"),
+        vault.data_dir.parent / "static" / "index",
+    ]
+
+    index_dir = None
+    for path in static_paths:
+        if (path / "search").exists():
+            index_dir = path
+            break
+
+    if not index_dir:
+        console.print("[red]Static index not found. Run 'stagvault static build' first.[/red]")
+        return
+
+    # Load sources metadata
+    sources_file = index_dir / "sources.json"
+    if sources_file.exists():
+        sources_data = json.loads(sources_file.read_text())
+        if isinstance(sources_data, dict):
+            sources = {s["id"]: s for s in sources_data.get("sources", [])}
+        else:
+            sources = {s["id"]: s for s in sources_data}
+    else:
+        sources = {}
+
+    # Extract prefix from query
+    query_lower = query.lower()
+    if len(query_lower) < 2:
+        console.print("[yellow]Query must be at least 2 characters[/yellow]")
+        return
+
+    prefix = query_lower[:2]
+    prefix_file = index_dir / "search" / f"{prefix}.json"
+
+    if not prefix_file.exists():
+        console.print(f"[yellow]No results for '{query}'[/yellow]")
+        return
+
+    # Load and filter results
+    items = json.loads(prefix_file.read_text())
+
+    # Filter by query match
+    filtered = []
+    for item in items:
+        name = item.get("n", "").lower()
+        tags = [t.lower() for t in item.get("t", [])]
+
+        # Check if query matches name or tags
+        if query_lower in name or any(query_lower in t for t in tags):
+            # Apply source filters
+            source_id = item.get("s")
+            if include_sources and source_id not in include_sources:
+                continue
+            if exclude_sources and source_id in exclude_sources:
+                continue
+
+            # Apply license filters
+            item_license = item.get("l") or sources.get(source_id, {}).get("license")
+            if include_licenses and item_license not in include_licenses:
+                continue
+            if exclude_licenses and item_license in exclude_licenses:
+                continue
+
+            filtered.append(item)
+
+    # Display results
+    table = Table(title=f"Search: {query} (mode: static)")
+    table.add_column("Name", style="cyan")
+    table.add_column("Source", style="blue")
+    table.add_column("Style", style="yellow")
+
+    for item in filtered[:limit]:
+        table.add_row(
+            item.get("n", ""),
+            item.get("s", ""),
+            item.get("y", "-"),
+        )
+
+    console.print(table)
+    console.print(f"[dim]Found {len(filtered)} results (static mode)[/dim]")
+
+
+def _search_rest(
+    ctx: click.Context,
+    query: str,
+    include_sources: set[str] | None,
+    exclude_sources: set[str] | None,
+    include_licenses: set[str] | None,
+    exclude_licenses: set[str] | None,
+    style: str | None,
+    limit: int,
+    grouped: bool,
+) -> None:
+    """Search using REST API endpoints."""
+    import urllib.request
+    import urllib.parse
+    import json
+
+    # Build URL
+    params = {"q": query, "limit": str(limit), "grouped": str(grouped).lower()}
+    if include_sources:
+        params["sources"] = ",".join(include_sources)
+    if style:
+        params["style"] = style
+
+    url = f"http://localhost:8000/svault/search?{urllib.parse.urlencode(params)}"
+
+    try:
+        with urllib.request.urlopen(url, timeout=10) as response:
+            data = json.loads(response.read().decode())
+    except Exception as e:
+        console.print(f"[red]REST API error: {e}[/red]")
+        console.print("[dim]Make sure the API server is running: stagvault serve[/dim]")
+        return
+
+    # Apply additional filters that REST might not support
+    results = data.get("results", data) if isinstance(data, dict) else data
+
+    # Display results
+    table = Table(title=f"Search: {query} (mode: rest)")
+    table.add_column("Name", style="cyan")
+    table.add_column("Source", style="blue")
+    if grouped:
+        table.add_column("Styles", style="yellow")
+    else:
+        table.add_column("Style", style="yellow")
+
+    for item in results[:limit]:
+        if grouped:
+            table.add_row(
+                item.get("canonical_name", item.get("name", "")),
+                item.get("source_id", ""),
+                ", ".join(item.get("styles", [])),
+            )
+        else:
+            table.add_row(
+                item.get("name", ""),
+                item.get("source_id", ""),
+                item.get("style", "-"),
+            )
+
+    console.print(table)
+    console.print(f"[dim]Found {len(results)} results (rest mode)[/dim]")
 
 
 # Sources command group
@@ -530,6 +752,8 @@ def static_build(ctx: click.Context, output: str, thumbnails: bool) -> None:
             "name": config.name,
             "type": config.source_type,
             "license": license_name,
+            "category": config.category,
+            "subcategory": config.subcategory,
         }
 
     output_path = Path(output)

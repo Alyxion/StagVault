@@ -2,6 +2,8 @@ id: octicons
 name: Octicons
 description: GitHub's icon set
 type: git
+category: Vector
+subcategory: Icons
 
 git:
   repo: primer/octicons

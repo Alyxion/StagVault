@@ -3,6 +3,8 @@
 id: noto-emoji
 name: Noto Emoji
 type: git
+category: Vector
+subcategory: Emoji
 description: Google's Noto Emoji set - color emojis and flags in SVG format
 
 git:
