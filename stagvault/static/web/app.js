@@ -1313,17 +1313,40 @@ class StagVault {
             const isSvg = this.isSvgSource(item.s);
 
             if (isSvg && svgUrl) {
-                // Load actual SVG for sharp rendering (works for both colorizable and non-colorizable)
-                // Set crossOrigin for colorizable sources so canvas colorization works
-                if (isColorizable) {
-                    previewImage.crossOrigin = 'anonymous';
-                }
+                // Fetch SVG text for live re-rendering at any zoom level
+                this.svgText = null; // Clear previous
+                this.currentSvgBlobUrl = null;
                 this.originalImageUrl = svgUrl;
-                previewImage.src = svgUrl;
-                previewImage.alt = item.n;
-                previewImage.onload = onImageLoad;
+
+                fetch(svgUrl)
+                    .then(response => {
+                        if (!response.ok) throw new Error('Failed to fetch SVG');
+                        return response.text();
+                    })
+                    .then(svgText => {
+                        this.svgText = svgText;
+                        // Initial render at fit size
+                        if (this.fitDisplayWidth) {
+                            this.renderSvgAtSize(this.fitDisplayWidth, this.fitDisplayHeight);
+                        } else {
+                            // Fit size not calculated yet, just load the SVG
+                            const blob = new Blob([svgText], { type: 'image/svg+xml' });
+                            this.currentSvgBlobUrl = URL.createObjectURL(blob);
+                            previewImage.src = this.currentSvgBlobUrl;
+                        }
+                        previewImage.alt = item.n;
+                        previewImage.onload = onImageLoad;
+                    })
+                    .catch(error => {
+                        console.error('SVG fetch failed:', error);
+                        // Fallback to direct load
+                        previewImage.src = svgUrl;
+                        previewImage.alt = item.n;
+                        previewImage.onload = onImageLoad;
+                    });
             } else if (item.p) {
                 // Non-SVG sources or SVG sources without URL builder - use thumbnail
+                this.svgText = null; // Not an SVG
                 const largeUrl = item.p.replace(/_64\.(jpg|png)$/, '_256.$1');
                 this.originalImageUrl = largeUrl;
                 previewImage.src = largeUrl;
@@ -2056,8 +2079,13 @@ class StagVault {
 
     closeModal() {
         this.currentItem = null;
+        this.svgText = null;
+        if (this.currentSvgBlobUrl) {
+            URL.revokeObjectURL(this.currentSvgBlobUrl);
+            this.currentSvgBlobUrl = null;
+        }
         const previewImage = document.getElementById('previewImage');
-        if (this.originalImageUrl) previewImage.src = this.originalImageUrl;
+        previewImage.src = '';
         document.getElementById('modalOverlay').classList.remove('active');
         document.getElementById('globalDownloadMenu').classList.remove('active');
     }
@@ -2176,6 +2204,11 @@ class StagVault {
         const displayWidth = Math.round(this.fitDisplayWidth * scale);
         const displayHeight = Math.round(this.fitDisplayHeight * scale);
 
+        // For SVGs, re-render at the target resolution for crisp display
+        if (this.svgText && this.isSvgSource(this.currentItem?.s)) {
+            this.renderSvgAtSize(displayWidth, displayHeight);
+        }
+
         // Set explicit dimensions
         previewImage.style.width = `${displayWidth}px`;
         previewImage.style.height = `${displayHeight}px`;
@@ -2191,6 +2224,37 @@ class StagVault {
         previewImage.style.cursor = this.zoomPercent > this.fitZoomPercent ? 'grab' : 'zoom-in';
 
         document.getElementById('zoomLevel').textContent = `${this.zoomPercent}%`;
+    }
+
+    renderSvgAtSize(width, height) {
+        if (!this.svgText) return;
+
+        let svg = this.svgText;
+
+        // Apply colorization if enabled
+        if (this.colorizeEnabled) {
+            svg = this.colorizeSvgWithColor(svg, this.primaryColor);
+        }
+
+        // Update SVG dimensions for crisp rendering at target size
+        // Remove existing width/height and add new ones
+        svg = svg.replace(/<svg([^>]*)>/, (match, attrs) => {
+            // Remove existing width/height attributes
+            attrs = attrs.replace(/\s*(width|height)\s*=\s*["'][^"']*["']/gi, '');
+            return `<svg${attrs} width="${width}" height="${height}">`;
+        });
+
+        // Revoke previous blob URL
+        if (this.currentSvgBlobUrl) {
+            URL.revokeObjectURL(this.currentSvgBlobUrl);
+        }
+
+        // Create new blob URL at target dimensions
+        const blob = new Blob([svg], { type: 'image/svg+xml' });
+        this.currentSvgBlobUrl = URL.createObjectURL(blob);
+
+        const previewImage = document.getElementById('previewImage');
+        previewImage.src = this.currentSvgBlobUrl;
     }
 
     startPan(e) {
@@ -2246,6 +2310,16 @@ class StagVault {
     applyColorization() {
         const previewImage = document.getElementById('previewImage');
 
+        // For SVGs with stored text, just re-render at current size (colorization is applied in renderSvgAtSize)
+        if (this.svgText && this.fitDisplayWidth) {
+            const scale = this.zoomPercent / 100;
+            const displayWidth = Math.round(this.fitDisplayWidth * scale);
+            const displayHeight = Math.round(this.fitDisplayHeight * scale);
+            this.renderSvgAtSize(displayWidth, displayHeight);
+            return;
+        }
+
+        // Fallback for non-SVG or when SVG text not available
         if (!this.colorizeEnabled || !this.originalImageUrl) {
             if (this.originalImageUrl) previewImage.src = this.originalImageUrl;
             previewImage.style.filter = '';
@@ -2265,21 +2339,9 @@ class StagVault {
         // Reset filter
         previewImage.style.filter = '';
 
-        // Check if this is an SVG URL - use XML colorization for vector sharpness
-        const isSvgUrl = this.originalImageUrl.endsWith('.svg') ||
-                         this.originalImageUrl.includes('image/svg');
-
-        console.log('Colorization:', { url: this.originalImageUrl, isSvgUrl, colorMode: this.colorMode });
-
-        if (isSvgUrl && this.colorMode !== 'duotone') {
-            // SVG XML colorization - stays vector sharp at any zoom
-            console.log('Using SVG XML colorization (vector)');
-            this.applySvgColorization(previewImage, primary);
-        } else {
-            // Canvas colorization for raster images or duotone mode
-            console.log('Using canvas colorization (raster)');
-            this.applyCanvasColorization(previewImage, primary);
-        }
+        // Canvas colorization for raster images
+        console.log('Using canvas colorization (raster)');
+        this.applyCanvasColorization(previewImage, primary);
     }
 
     async applySvgColorization(previewImage, primary) {
