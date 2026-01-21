@@ -41,6 +41,14 @@ class CheckerboardConfig(BaseModel):
     square_size: int = Field(default=8, description="Size of each square in pixels")
 
 
+class ColorConfig(BaseModel):
+    """Configuration for SVG colorization."""
+
+    primary_color: str = Field(default="#e94560", description="Primary/monochrome color (hex)")
+    secondary_color: str = Field(default="#ffffff", description="Secondary color for duotone (hex)")
+    enabled: bool = Field(default=True, description="Whether to colorize SVGs")
+
+
 class ThumbnailConfig(BaseModel):
     """Configuration for thumbnail generation."""
 
@@ -52,6 +60,10 @@ class ThumbnailConfig(BaseModel):
     checkerboard: CheckerboardConfig = Field(
         default_factory=CheckerboardConfig,
         description="Checkerboard background settings for JPG",
+    )
+    colors: ColorConfig = Field(
+        default_factory=ColorConfig,
+        description="SVG colorization settings",
     )
     storage_path: Path | None = Field(
         default=None, description="Custom storage path for thumbnails"

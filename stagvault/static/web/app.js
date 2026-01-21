@@ -20,6 +20,7 @@ class StagVault {
         this.currentSearchId = 0; // Track search requests to handle race conditions
         this.apiCache = new Map(); // In-memory cache for API responses
         this.API_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in ms
+        this.API_CACHE_VERSION = 2; // Increment to invalidate old caches (v2: HTML stripping)
 
         // Filter state - these track EXCLUDED items (unchecked = excluded)
         this.excludedSources = new Set();
@@ -38,7 +39,7 @@ class StagVault {
         this.panStartX = 0;
         this.panStartY = 0;
         this.colorizeEnabled = false;
-        this.primaryColor = '#e94560';
+        this.primaryColor = '#e94560';  // Default to red for better visibility
         this.secondaryColor = '#ffffff';
         this.colorMode = 'monochrome';
 
@@ -118,6 +119,9 @@ class StagVault {
         // Load API cache from localStorage
         this.loadApiCache();
 
+        // Load filter state from localStorage
+        this.loadFilterState();
+
         this.init();
     }
 
@@ -144,6 +148,7 @@ class StagVault {
             this.prefixManifest = manifest;
 
             this.populateSidebar();
+            this.applyFilterStateToUI();
             this.setupEventListeners();
             this.showInitialState();
 
@@ -157,6 +162,18 @@ class StagVault {
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP ${response.status}: ${url}`);
         return response.json();
+    }
+
+    /**
+     * Customize the app title and subtitle
+     * @param {string} title - Main title (e.g., "🦌 StagVault")
+     * @param {string} subtitle - Subtitle (e.g., "Media Search")
+     */
+    setAppBranding(title, subtitle) {
+        const titleEl = document.getElementById('appTitle');
+        const subtitleEl = document.getElementById('appSubtitle');
+        if (title && titleEl) titleEl.textContent = title;
+        if (subtitle && subtitleEl) subtitleEl.textContent = subtitle;
     }
 
     populateSidebar() {
@@ -415,6 +432,7 @@ class StagVault {
 
                 this.updateParentCheckboxes();
                 this.updateActiveFilters();
+                this.saveFilterState();
                 this.performSearch();
             });
         });
@@ -468,6 +486,7 @@ class StagVault {
 
         this.updateParentCheckboxes();
         this.updateActiveFilters();
+        this.saveFilterState();
         this.performSearch();
     }
 
@@ -586,6 +605,7 @@ class StagVault {
         }
 
         this.updateActiveFilters();
+        this.saveFilterState();
         this.performSearch();
     }
 
@@ -595,17 +615,19 @@ class StagVault {
 
         // Show excluded items as "negative" filters
         this.excludedSources.forEach(id => {
+            if (!id) return; // Skip undefined/null
             const source = this.sources.find(s => s.id === id);
             filters.push({ type: 'source', id, label: `−${source?.name || id}` });
         });
         this.excludedLicenses.forEach(id => {
+            if (!id) return; // Skip undefined/null
             filters.push({ type: 'license', id, label: `−${id}` });
         });
 
         container.innerHTML = filters.map(f => `
             <span class="active-filter-tag excluded">
                 ${this.escapeHtml(f.label)}
-                <span class="remove" onclick="stagvault.removeExclusion('${f.type}', '${f.id.replace(/'/g, "\\'")}')">&times;</span>
+                <span class="remove" onclick="stagvault.removeExclusion('${f.type}', '${String(f.id).replace(/'/g, "\\'")}')">&times;</span>
             </span>
         `).join('');
     }
@@ -630,6 +652,7 @@ class StagVault {
         }
 
         this.updateActiveFilters();
+        this.saveFilterState();
         this.performSearch();
     }
 
@@ -649,6 +672,109 @@ class StagVault {
         });
 
         this.updateActiveFilters();
+        this.saveFilterState();
+        this.performSearch();
+    }
+
+    selectAllSources() {
+        this.excludedSources.clear();
+        document.querySelectorAll('#sourcesList .filter-item').forEach(item => {
+            item.classList.remove('excluded');
+            const cb = item.querySelector('input[type="checkbox"]');
+            if (cb) cb.checked = true;
+        });
+        document.querySelectorAll('#sourcesList .branch-checkbox').forEach(cb => {
+            cb.checked = true;
+            cb.indeterminate = false;
+        });
+        this.updateActiveFilters();
+        this.saveFilterState();
+        this.performSearch();
+    }
+
+    deselectAllSources() {
+        // Add all sources to excluded
+        this.sources.forEach(s => this.excludedSources.add(s.id));
+        // Also add API providers
+        Object.keys(this.apiProviders).forEach(id => {
+            if (this.apiProviders[id].enabled) {
+                this.excludedSources.add(id);
+            }
+        });
+        document.querySelectorAll('#sourcesList .filter-item').forEach(item => {
+            item.classList.add('excluded');
+            const cb = item.querySelector('input[type="checkbox"]');
+            if (cb) cb.checked = false;
+        });
+        document.querySelectorAll('#sourcesList .branch-checkbox').forEach(cb => {
+            cb.checked = false;
+            cb.indeterminate = false;
+        });
+        this.updateActiveFilters();
+        this.saveFilterState();
+        this.performSearch();
+    }
+
+    selectAllLicenses() {
+        this.excludedLicenses.clear();
+        document.querySelectorAll('#licensesList .filter-item').forEach(item => {
+            item.classList.remove('excluded');
+            const cb = item.querySelector('input[type="checkbox"]');
+            if (cb) cb.checked = true;
+        });
+        this.updateActiveFilters();
+        this.saveFilterState();
+        this.performSearch();
+    }
+
+    deselectAllLicenses() {
+        // Add all licenses to excluded using data-id from DOM
+        document.querySelectorAll('#licensesList .filter-item[data-type="license"]').forEach(item => {
+            const licenseId = item.dataset.id;
+            if (licenseId) {
+                this.excludedLicenses.add(licenseId);
+                item.classList.add('excluded');
+                const cb = item.querySelector('input[type="checkbox"]');
+                if (cb) cb.checked = false;
+            }
+        });
+        this.updateActiveFilters();
+        this.saveFilterState();
+        this.performSearch();
+    }
+
+    selectCommercialLicenses() {
+        // Commercial-friendly licenses (non-viral, no copyleft)
+        const commercialFriendly = new Set([
+            'MIT', 'ISC', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause',
+            'CC0', 'CC0-1.0', 'Public domain', 'Unlicense', 'WTFPL',
+            'CC-BY', 'CC-BY-4.0', 'CC-BY-3.0',
+            'OFL-1.1', 'SIL Open Font License',
+            'Pexels License', 'Pixabay License', 'Unsplash License'
+        ]);
+
+        // Start fresh
+        this.excludedLicenses.clear();
+
+        document.querySelectorAll('#licensesList .filter-item[data-type="license"]').forEach(item => {
+            const licenseId = item.dataset.id;
+            if (!licenseId) return;
+
+            const isCommercial = commercialFriendly.has(licenseId);
+            const cb = item.querySelector('input[type="checkbox"]');
+
+            if (isCommercial) {
+                item.classList.remove('excluded');
+                if (cb) cb.checked = true;
+            } else {
+                item.classList.add('excluded');
+                if (cb) cb.checked = false;
+                this.excludedLicenses.add(licenseId);
+            }
+        });
+
+        this.updateActiveFilters();
+        this.saveFilterState();
         this.performSearch();
     }
 
@@ -1014,8 +1140,17 @@ class StagVault {
         const sourceName = this.getSourceDisplayName(item.s);
         const isApiItem = item._apiItem === true;
 
-        const iconHtml = item.p
-            ? `<img src="${item.p}" alt="${this.escapeHtml(item.n)}" loading="lazy" onerror="this.style.display='none';this.parentElement.classList.add('placeholder')">`
+        // Get thumbnail URL - use item.p if available, otherwise try to generate URL for SVG sources
+        let thumbUrl = item.p;
+        if (!thumbUrl && !isApiItem) {
+            try {
+                thumbUrl = this.getSvgUrl(item);
+            } catch (e) {
+                // Silently ignore - show placeholder
+            }
+        }
+        const iconHtml = thumbUrl
+            ? `<img src="${thumbUrl}" alt="${this.escapeHtml(item.n)}" loading="lazy" onerror="this.style.display='none';this.parentElement.classList.add('placeholder')">`
             : `<div class="placeholder"></div>`;
 
         const tags = (item.t || []).slice(0, 3);
@@ -1058,7 +1193,6 @@ class StagVault {
         this.fitZoomPercent = 100;
         this.panX = 0;
         this.panY = 0;
-        this.colorizeEnabled = false;
         this.colorMode = this.getColorMode(item);
 
         const source = this.sources.find(s => s.id === item.s);
@@ -1067,39 +1201,96 @@ class StagVault {
         const isApiItem = item._apiItem === true;
         const isColorizable = !isApiItem && !this.nonColorableSources.has(item.s);
 
-        document.getElementById('modalTitle').textContent = item.n;
+        // Enable colorization by default for SVG icon sources
+        this.colorizeEnabled = isColorizable;
+
+        // Truncate long titles (Pixabay uses tags as name)
+        let modalTitle = item.n || 'Untitled';
+        if (modalTitle.length > 50) {
+            modalTitle = modalTitle.split(',')[0].trim();
+            if (modalTitle.length > 50) modalTitle = modalTitle.substring(0, 47) + '...';
+        }
+        document.getElementById('modalTitle').textContent = modalTitle;
 
         const previewImage = document.getElementById('previewImage');
 
-        // Common onload handler to calculate fit zoom
+        // Reset crossOrigin attribute (may persist from previous item)
+        previewImage.crossOrigin = null;
+
+        // Track if initial zoom has been calculated (to prevent reset on colorization)
+        this.initialZoomCalculated = false;
+
+        // Track the original (uncolorized) image URL - set once and never change
+        let originalSvgUrl = null;
+
+        // Common onload handler to calculate fit zoom and apply colorization
         const onImageLoad = () => {
-            this.calculateFitZoom(previewImage);
+            // Only calculate fit zoom once on initial load
+            if (!this.initialZoomCalculated) {
+                this.calculateFitZoom(previewImage);
+                this.initialZoomCalculated = true;
+
+                // Store the original URL only once (before any colorization)
+                if (!originalSvgUrl) {
+                    originalSvgUrl = previewImage.src;
+                    this.originalImageUrl = originalSvgUrl;
+                }
+            }
             if (this.colorMode === 'monochrome' && isColorizable) {
                 this.detectAndUpdateColorMode(previewImage);
+            }
+            // Apply colorization if enabled by default
+            if (this.colorizeEnabled && isColorizable && this.originalImageUrl) {
+                this.applyColorization();
             }
         };
 
         // Error handler for failed images - with fallback chain
-        let fallbackAttempted = false;
+        let fallbackStage = 0;
+        const fallbackUrls = [];
+
+        // Build fallback chain based on item type
+        if (isApiItem) {
+            if (item.p) fallbackUrls.push(item.p);
+            if (item._original && item._original !== item.p) fallbackUrls.push(item._original);
+            if (item._directUrl && item._directUrl !== item.p) fallbackUrls.push(item._directUrl);
+        } else {
+            // For colorizable sources, SVG is primary, thumbnails are fallback
+            const svgUrl = this.getSvgUrl(item);
+            if (isColorizable && svgUrl) {
+                fallbackUrls.push(svgUrl);
+            }
+            if (item.p) {
+                fallbackUrls.push(item.p.replace(/_64\.(jpg|png)$/, '_256.$1'));
+                fallbackUrls.push(item.p);
+            }
+            // Add SVG as final fallback if not already added
+            if (svgUrl && !fallbackUrls.includes(svgUrl)) {
+                fallbackUrls.push(svgUrl);
+            }
+        }
+
         const onImageError = () => {
             const failedSrc = previewImage.src;
             console.error('Failed to load image:', failedSrc);
 
-            // For static items, try falling back to thumbnail (_64) if _256 failed
-            if (!fallbackAttempted && item.p && failedSrc.includes('_256.')) {
-                fallbackAttempted = true;
-                console.log('Falling back to thumbnail:', item.p);
-                previewImage.src = item.p;
-                this.originalImageUrl = item.p;
+            // Try next fallback URL
+            fallbackStage++;
+            if (fallbackStage < fallbackUrls.length) {
+                const nextUrl = fallbackUrls[fallbackStage];
+                console.log(`Trying fallback ${fallbackStage}:`, nextUrl);
+                previewImage.src = nextUrl;
+                this.originalImageUrl = nextUrl;
                 return;
             }
 
-            // Show placeholder
+            // All fallbacks exhausted - show placeholder
+            previewImage.onerror = null; // Prevent infinite loop
             previewImage.src = 'data:image/svg+xml,' + encodeURIComponent(
                 '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">' +
                 '<rect fill="#1a1a2e" width="200" height="200"/>' +
                 '<text x="100" y="90" text-anchor="middle" fill="#666" font-size="14">Image not available</text>' +
-                '<text x="100" y="115" text-anchor="middle" fill="#555" font-size="11">CORS or hotlink blocked</text>' +
+                '<text x="100" y="115" text-anchor="middle" fill="#555" font-size="11">Try clearing cache</text>' +
                 '</svg>'
             );
         };
@@ -1116,15 +1307,32 @@ class StagVault {
             if (item._original && item._original !== item.p) {
                 this.loadFullResolutionImage(item._original, previewImage);
             }
-        } else if (item.p) {
-            const largeUrl = item.p.replace(/_64\.(jpg|png)$/, '_256.$1');
-            this.originalImageUrl = largeUrl;
-            previewImage.src = largeUrl;
-            previewImage.alt = item.n;
-            previewImage.onload = onImageLoad;
         } else {
-            previewImage.src = '';
-            this.originalImageUrl = null;
+            // For all SVG sources, load the actual SVG for sharp rendering at any zoom
+            const svgUrl = this.getSvgUrl(item);
+            const isSvg = this.isSvgSource(item.s);
+
+            if (isSvg && svgUrl) {
+                // Load actual SVG for sharp rendering (works for both colorizable and non-colorizable)
+                // Set crossOrigin for colorizable sources so canvas colorization works
+                if (isColorizable) {
+                    previewImage.crossOrigin = 'anonymous';
+                }
+                this.originalImageUrl = svgUrl;
+                previewImage.src = svgUrl;
+                previewImage.alt = item.n;
+                previewImage.onload = onImageLoad;
+            } else if (item.p) {
+                // Non-SVG sources or SVG sources without URL builder - use thumbnail
+                const largeUrl = item.p.replace(/_64\.(jpg|png)$/, '_256.$1');
+                this.originalImageUrl = largeUrl;
+                previewImage.src = largeUrl;
+                previewImage.alt = item.n;
+                previewImage.onload = onImageLoad;
+            } else {
+                previewImage.src = '';
+                this.originalImageUrl = null;
+            }
         }
 
         // Show/hide SVG size presets
@@ -1139,8 +1347,11 @@ class StagVault {
         const colorizeContainer = colorizeToggle.closest('.colorize-toggle');
         if (isColorizable) {
             colorizeContainer.style.display = 'flex';
-            colorizeToggle.checked = false;
-            this.toggleColorControls(false);
+            colorizeToggle.checked = this.colorizeEnabled;
+            // Sync color picker with current value
+            document.getElementById('primaryColor').value = this.primaryColor;
+            document.getElementById('secondaryColor').value = this.secondaryColor;
+            this.toggleColorControls(this.colorizeEnabled);
             this.updateColorModeUI();
         } else {
             colorizeContainer.style.display = 'none';
@@ -1179,8 +1390,33 @@ class StagVault {
 
         // Build resolution info for API items
         let resolutionHtml = '';
-        if (isApiItem && item._width && item._height) {
-            resolutionHtml = `<br>Resolution: ${item._width} × ${item._height}`;
+        if (isApiItem) {
+            // Show full resolution if available (Wikimedia, Pixabay store it separately)
+            const width = item._fullWidth || item._width;
+            const height = item._fullHeight || item._height;
+            if (width && height) {
+                resolutionHtml = `<br>Resolution: ${width} × ${height}`;
+            }
+        }
+
+        // Build original link for API items
+        let originalLinkHtml = '';
+        if (isApiItem) {
+            const originalUrl = this.getFullResolutionUrl(item);
+            if (originalUrl) {
+                originalLinkHtml = `<br><a href="${originalUrl}" target="_blank" rel="noopener">Original file ↗</a>`;
+            }
+            if (item._pageUrl) {
+                originalLinkHtml += `<br><a href="${item._pageUrl}" target="_blank" rel="noopener">View on ${this.escapeHtml(sourceName)} ↗</a>`;
+            }
+        }
+
+        // Truncate long names (e.g., Pixabay uses all tags as name)
+        let displayName = item.n || 'Untitled';
+        if (displayName.length > 60) {
+            // Take first part before comma or truncate
+            const firstPart = displayName.split(',')[0].trim();
+            displayName = firstPart.length > 60 ? firstPart.substring(0, 57) + '...' : firstPart;
         }
 
         // Determine download button type
@@ -1190,9 +1426,9 @@ class StagVault {
             : this.renderDownloadButton(item, isSvgSource);
 
         infoContainer.innerHTML = `
-            <h2>${this.escapeHtml(item.n)}</h2>
+            <h2>${this.escapeHtml(displayName)}</h2>
             <p>
-                Source: ${this.escapeHtml(sourceName)}${attributionHtml}${resolutionHtml}<br>
+                Source: ${this.escapeHtml(sourceName)}${attributionHtml}${resolutionHtml}${originalLinkHtml}<br>
                 ${item.y ? `Style: ${this.escapeHtml(item.y)}<br>` : ''}
                 License: ${licenseHtml}
             </p>
@@ -1220,16 +1456,42 @@ class StagVault {
         return providerNames[sourceId] || sourceId;
     }
 
-    renderApiDownloadButton(item) {
-        const downloadUrl = item._directUrl || item._original || item.p;
-        if (!downloadUrl) return '';
+    getFullResolutionUrl(item) {
+        // Return the best available full resolution URL
+        if (item._directUrl) return item._directUrl;
 
+        // For Wikimedia: reconstruct from thumbnail
+        if (item.s === 'wikimedia') {
+            const url = item._original || item.p;
+            if (url) {
+                // Thumbnail: /thumb/a/ab/File.jpg/800px-File.jpg -> /a/ab/File.jpg
+                const thumbMatch = url.match(/\/thumb\/([^/]+\/[^/]+\/[^/]+)\/\d+px-/);
+                if (thumbMatch) {
+                    return `https://upload.wikimedia.org/wikipedia/commons/${thumbMatch[1]}`;
+                }
+            }
+        }
+
+        // For Pexels: use original from src object
+        if (item.s === 'pexels' && item._original) {
+            return item._original;
+        }
+
+        // For Unsplash: use full URL
+        if (item.s === 'unsplash' && item._original) {
+            return item._original;
+        }
+
+        return item._original || null;
+    }
+
+    renderApiDownloadButton(item) {
         // For Pixabay and some others, direct download is blocked - show link to page
         const pageUrl = item._pageUrl;
         const hasPageLink = pageUrl && (item.s === 'pixabay' || item.s === 'wikimedia');
 
         let buttons = `
-            <button class="btn btn-primary" onclick="stagvault.downloadApiImage('${downloadUrl}', '${this.sanitizeFilename(item.n)}')">
+            <button class="btn btn-primary" onclick="stagvault.downloadCurrentItem()">
                 Download
             </button>
         `;
@@ -1245,28 +1507,88 @@ class StagVault {
         return buttons;
     }
 
-    async downloadApiImage(url, filename) {
+    async downloadCurrentItem() {
+        const item = this.currentItem;
+        if (!item) return;
+
+        // Truncate filename like we do for display
+        let filename = item.n || 'download';
+        if (filename.length > 60) {
+            filename = filename.split(',')[0].trim();
+        }
+        filename = this.sanitizeFilename(filename);
+
+        // Get the best full resolution URL
+        const downloadUrl = this.getFullResolutionUrl(item) || item.p;
+
+        console.log('Download attempt:', {
+            source: item.s,
+            directUrl: item._directUrl,
+            original: item._original,
+            thumbnail: item.p,
+            chosen: downloadUrl
+        });
+
         try {
-            // For some APIs we need to trigger download differently
-            if (this.currentItem?._downloadUrl) {
-                // Unsplash requires using their download endpoint
-                window.open(this.currentItem._downloadUrl, '_blank');
+            // Unsplash requires using their download endpoint
+            if (item._downloadUrl) {
+                window.open(item._downloadUrl, '_blank');
                 this.showToast('Download started');
                 return;
             }
 
-            // Try to fetch and download
-            const response = await fetch(url);
-            if (!response.ok) throw new Error('Failed to fetch image');
+            // Try to fetch and download (works if CORS allows)
+            this.showToast('Downloading full resolution...');
+            const response = await fetch(downloadUrl, {
+                mode: 'cors',
+                credentials: 'omit'
+            });
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const blob = await response.blob();
+            console.log('Downloaded blob:', blob.size, 'bytes');
+            const ext = this.getExtensionFromMime(blob.type) || 'jpg';
+            this.downloadBlob(blob, `${filename}.${ext}`);
+            this.showToast('Downloaded!');
+        } catch (error) {
+            console.error('Direct fetch failed:', error);
+
+            // Fallback: open in new tab for manual save
+            this.showToast('Opening full resolution (right-click to save)');
+            window.open(downloadUrl, '_blank');
+        }
+    }
+
+    // Keep old method for backwards compatibility
+    async downloadApiImage(url, filename) {
+        const downloadUrl = this.currentItem?._directUrl || url;
+
+        try {
+            this.showToast('Downloading...');
+            const response = await fetch(downloadUrl, {
+                mode: 'cors',
+                credentials: 'omit'
+            });
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
             const blob = await response.blob();
             const ext = this.getExtensionFromMime(blob.type) || 'jpg';
             this.downloadBlob(blob, `${filename}.${ext}`);
             this.showToast('Downloaded!');
         } catch (error) {
-            // Fallback: open in new tab
-            console.error('Download failed, opening in new tab:', error);
-            window.open(url, '_blank');
+            console.error('Direct fetch failed:', error);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = filename;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            this.showToast('Opening in new tab (right-click to save)');
         }
     }
 
@@ -1286,7 +1608,7 @@ class StagVault {
         const cacheKey = `img:${url}`;
         const cached = this.getCachedApiResponse(cacheKey);
 
-        if (cached) {
+        if (cached && cached.startsWith('blob:')) {
             // Use cached blob URL
             imgElement.src = cached;
             this.originalImageUrl = cached;
@@ -1294,9 +1616,15 @@ class StagVault {
         }
 
         try {
-            // Fetch the full resolution image
-            const response = await fetch(url);
-            if (!response.ok) return;
+            // Fetch the full resolution image with CORS
+            const response = await fetch(url, {
+                mode: 'cors',
+                credentials: 'omit'
+            });
+            if (!response.ok) {
+                console.warn('Full res fetch failed:', response.status, url);
+                return; // Keep thumbnail
+            }
 
             const blob = await response.blob();
             const blobUrl = URL.createObjectURL(blob);
@@ -1306,11 +1634,9 @@ class StagVault {
                 imgElement.src = blobUrl;
                 this.originalImageUrl = blobUrl;
 
-                // Cache the blob URL (note: blob URLs are session-specific)
-                // We'll cache the URL for quick re-access within the same session
+                // Cache the blob URL (session-specific)
                 this.setCachedApiResponse(cacheKey, blobUrl);
             } else {
-                // Clean up if modal was closed
                 URL.revokeObjectURL(blobUrl);
             }
         } catch (error) {
@@ -1324,36 +1650,18 @@ class StagVault {
         const svgSources = new Set([
             'phosphor-icons', 'lucide', 'heroicons', 'feather', 'tabler-icons',
             'bootstrap-icons', 'ionicons', 'octicons', 'boxicons', 'eva-icons',
-            'iconoir', 'remix-icon', 'simple-icons', 'material-design'
+            'iconoir', 'remix-icon', 'simple-icons', 'material-design', 'noto-emoji'
         ]);
         return svgSources.has(sourceId);
     }
 
     renderDownloadButton(item, isSvgSource) {
         if (isSvgSource) {
+            // SVG sources get a dropdown menu (using global menu)
             return `
-                <div class="download-dropdown">
-                    <button class="btn btn-primary" onclick="stagvault.toggleDownloadMenu(event)">
-                        ↓ Download
-                    </button>
-                    <div class="download-menu" id="downloadMenu">
-                        <div class="download-menu-header">Vector</div>
-                        <button class="download-menu-item" onclick="stagvault.downloadSvg()">
-                            SVG (Original)
-                        </button>
-                        <div class="download-menu-divider"></div>
-                        <div class="download-menu-header">PNG Export</div>
-                        <button class="download-menu-item" onclick="stagvault.downloadPng(128)">
-                            PNG 128×128
-                        </button>
-                        <button class="download-menu-item" onclick="stagvault.downloadPng(256)">
-                            PNG 256×256
-                        </button>
-                        <button class="download-menu-item" onclick="stagvault.downloadPng(512)">
-                            PNG 512×512
-                        </button>
-                    </div>
-                </div>
+                <button class="btn btn-primary" onclick="stagvault.toggleDownloadMenu(event)">
+                    ↓ Download
+                </button>
             `;
         } else {
             // For raster images (emoji, photos), just download original
@@ -1369,12 +1677,19 @@ class StagVault {
 
     toggleDownloadMenu(event) {
         event.stopPropagation();
-        const menu = document.getElementById('downloadMenu');
+        const menu = document.getElementById('globalDownloadMenu');
+        const button = event.currentTarget;
+        const rect = button.getBoundingClientRect();
+
+        // Position menu below the button
+        menu.style.left = `${rect.left}px`;
+        menu.style.top = `${rect.bottom + 8}px`;
+
         menu.classList.toggle('active');
 
         // Close menu when clicking outside
         const closeMenu = (e) => {
-            if (!menu.contains(e.target) && !e.target.closest('.download-dropdown')) {
+            if (!menu.contains(e.target) && e.target !== button) {
                 menu.classList.remove('active');
                 document.removeEventListener('click', closeMenu);
             }
@@ -1388,6 +1703,7 @@ class StagVault {
         const item = this.currentItem;
         // Construct SVG URL from source and item info
         const svgUrl = this.getSvgUrl(item);
+        console.log('Download SVG:', { item: item.n, source: item.s, url: svgUrl });
 
         if (!svgUrl) {
             this.showToast('SVG not available');
@@ -1395,73 +1711,99 @@ class StagVault {
         }
 
         try {
+            console.log('Fetching SVG from:', svgUrl);
             const response = await fetch(svgUrl);
-            if (!response.ok) throw new Error('Failed to fetch SVG');
+            if (!response.ok) {
+                console.error('Fetch failed:', response.status, response.statusText);
+                throw new Error(`Failed to fetch SVG: ${response.status}`);
+            }
 
             let svgText = await response.text();
+            console.log('SVG fetched, length:', svgText.length);
 
             // Apply colorization if enabled
             if (this.colorizeEnabled) {
                 svgText = this.colorizeSvg(svgText);
+                console.log('SVG colorized');
             }
 
             // Download
+            const filename = `${this.sanitizeFilename(item.n)}.svg`;
             const blob = new Blob([svgText], { type: 'image/svg+xml' });
-            this.downloadBlob(blob, `${this.sanitizeFilename(item.n)}.svg`);
+            console.log('Downloading:', filename, 'size:', blob.size);
+            this.downloadBlob(blob, filename);
             this.showToast('SVG downloaded!');
         } catch (error) {
             console.error('SVG download failed:', error);
-            this.showToast('Download failed');
+            this.showToast('Download failed: ' + error.message);
         }
 
-        document.getElementById('downloadMenu').classList.remove('active');
+        document.getElementById('globalDownloadMenu').classList.remove('active');
     }
 
     getSvgUrl(item) {
-        // Construct SVG URL based on source repository structure
+        if (!item || !item.s || !item.n) {
+            return null;
+        }
+
+        // Base path to data directory (relative to where app is served)
+        // Static serve creates a 'data' symlink in the served directory
+        const dataBase = this.svgBasePath || 'data';
+
         const name = item.n.toLowerCase().replace(/\s+/g, '-');
         const style = item.y || 'regular';
 
-        // Source-specific URL patterns
+        // Local paths based on actual data directory structure
         const urlBuilders = {
             'phosphor-icons': () => {
-                // Phosphor uses: assets/{weight}/{name}.svg
+                // data/phosphor-icons/assets/{style}/{name}.svg
                 const weight = style === 'regular' ? 'regular' : style;
-                return `https://raw.githubusercontent.com/phosphor-icons/core/main/assets/${weight}/${name}.svg`;
+                return `${dataBase}/phosphor-icons/assets/${weight}/${name}.svg`;
             },
             'lucide': () => {
-                // Lucide uses: icons/{name}.svg
-                return `https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/${name}.svg`;
+                // data/lucide/icons/{name}.svg
+                return `${dataBase}/lucide/icons/${name}.svg`;
             },
             'feather': () => {
-                // Feather uses: icons/{name}.svg
-                return `https://raw.githubusercontent.com/feathericons/feather/main/icons/${name}.svg`;
+                // data/feather/icons/{name}.svg
+                return `${dataBase}/feather/icons/${name}.svg`;
             },
             'heroicons': () => {
-                // Heroicons uses: src/{style}/24/{style}/{name}.svg
+                // data/heroicons/src/24/{style}/{name}.svg
                 const heroStyle = style === 'solid' ? 'solid' : 'outline';
-                return `https://raw.githubusercontent.com/tailwindlabs/heroicons/master/src/24/${heroStyle}/${name}.svg`;
+                return `${dataBase}/heroicons/src/24/${heroStyle}/${name}.svg`;
             },
             'tabler-icons': () => {
-                // Tabler uses: icons/outline/{name}.svg or icons/filled/{name}.svg
+                // data/tabler-icons/icons/{style}/{name}.svg
                 const tablerStyle = style === 'filled' ? 'filled' : 'outline';
-                return `https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/${tablerStyle}/${name}.svg`;
+                return `${dataBase}/tabler-icons/icons/${tablerStyle}/${name}.svg`;
             },
             'bootstrap-icons': () => {
-                return `https://raw.githubusercontent.com/twbs/icons/main/icons/${name}.svg`;
+                return `${dataBase}/bootstrap-icons/icons/${name}.svg`;
             },
             'ionicons': () => {
-                return `https://raw.githubusercontent.com/ionic-team/ionicons/main/src/svg/${name}.svg`;
+                return `${dataBase}/ionicons/src/svg/${name}.svg`;
             },
             'octicons': () => {
-                return `https://raw.githubusercontent.com/primer/octicons/main/icons/${name}-24.svg`;
+                return `${dataBase}/octicons/icons/${name}-24.svg`;
             },
             'simple-icons': () => {
-                return `https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/${name}.svg`;
+                return `${dataBase}/simple-icons/icons/${name}.svg`;
             },
             'remix-icon': () => {
-                // RemixIcon has category folders, try common pattern
-                return `https://raw.githubusercontent.com/Remix-Design/RemixIcon/master/icons/System/${name}.svg`;
+                return `${dataBase}/remix-icon/icons/System/${name}.svg`;
+            },
+            'noto-emoji': () => {
+                // Noto emoji: convert thumbnail path to SVG path
+                // thumbs/noto-emoji/.../xxx.jpg -> data/noto-emoji/.../xxx.svg
+                if (item.p && item.p.includes('/png/')) {
+                    return item.p
+                        .replace('thumbs/', `${dataBase}/`)
+                        .replace('/png/128/', '/svg/')
+                        .replace('/png/72/', '/svg/')
+                        .replace('.png', '.svg');
+                }
+                return null;
             },
         };
 
@@ -1470,30 +1812,20 @@ class StagVault {
             return builder();
         }
 
+        // No builder for this source
         return null;
     }
 
     colorizeSvg(svgText) {
-        // Replace fill and stroke colors in SVG
-        const color = this.primaryColor;
-
-        // Replace currentColor
-        svgText = svgText.replace(/currentColor/gi, color);
-
-        // Replace black/dark fills (but preserve 'none')
-        svgText = svgText.replace(/fill="(?!none)(#[0-9a-fA-F]{3,6}|black|rgb\([^)]+\))"/gi, `fill="${color}"`);
-
-        // Replace strokes
-        svgText = svgText.replace(/stroke="(?!none)(#[0-9a-fA-F]{3,6}|black|currentColor|rgb\([^)]+\))"/gi, `stroke="${color}"`);
-
-        return svgText;
+        // Use the improved colorization function
+        return this.colorizeSvgWithColor(svgText, this.primaryColor);
     }
 
     async downloadPng(size) {
         if (!this.currentItem) return;
 
         const item = this.currentItem;
-        document.getElementById('downloadMenu').classList.remove('active');
+        document.getElementById('globalDownloadMenu').classList.remove('active');
 
         try {
             // For SVG sources, render fresh from SVG
@@ -1727,37 +2059,84 @@ class StagVault {
         const previewImage = document.getElementById('previewImage');
         if (this.originalImageUrl) previewImage.src = this.originalImageUrl;
         document.getElementById('modalOverlay').classList.remove('active');
+        document.getElementById('globalDownloadMenu').classList.remove('active');
     }
 
     calculateFitZoom(img) {
         const container = document.getElementById('previewContainer');
         if (!img.naturalWidth || !img.naturalHeight || !container) return;
 
-        const containerWidth = container.clientWidth - 20; // padding
-        const containerHeight = container.clientHeight - 20;
+        // Store natural dimensions for zoom calculations
+        this.imageNaturalWidth = img.naturalWidth;
+        this.imageNaturalHeight = img.naturalHeight;
 
-        const scaleX = containerWidth / img.naturalWidth;
-        const scaleY = containerHeight / img.naturalHeight;
-        const fitScale = Math.min(scaleX, scaleY, 1); // Don't upscale beyond 100%
+        // Helper to do the actual calculation
+        const doCalculation = () => {
+            const containerRect = container.getBoundingClientRect();
 
-        this.fitZoomPercent = Math.round(fitScale * 100);
-        this.zoomPercent = this.fitZoomPercent;
-        this.panX = 0;
-        this.panY = 0;
-        this.applyZoom();
+            // If container isn't visible/laid out yet, wait and retry
+            if (containerRect.width < 100 || containerRect.height < 100) {
+                setTimeout(() => this.calculateFitZoom(img), 50);
+                return;
+            }
+
+            // Subtract padding for actual usable space
+            const availableWidth = containerRect.width - 40;
+            const availableHeight = containerRect.height - 40;
+
+            // Calculate the size that fits while maintaining aspect ratio
+            const aspectRatio = this.imageNaturalWidth / this.imageNaturalHeight;
+            let fitWidth, fitHeight;
+
+            if (availableWidth / availableHeight > aspectRatio) {
+                // Container is wider than image aspect ratio - fit by height
+                fitHeight = availableHeight;
+                fitWidth = fitHeight * aspectRatio;
+            } else {
+                // Container is taller than image aspect ratio - fit by width
+                fitWidth = availableWidth;
+                fitHeight = fitWidth / aspectRatio;
+            }
+
+            // Store fit dimensions (100% zoom = this size)
+            this.fitDisplayWidth = Math.floor(fitWidth);
+            this.fitDisplayHeight = Math.floor(fitHeight);
+
+            // 100% zoom means "fit to container"
+            this.fitZoomPercent = 100;
+            this.zoomPercent = 100;
+            this.panX = 0;
+            this.panY = 0;
+            this.applyZoom();
+        };
+
+        // Double RAF ensures both layout and paint have happened
+        requestAnimationFrame(() => {
+            requestAnimationFrame(doCalculation);
+        });
     }
 
-    // Zoom steps: double/half, clamped to 10-400%
+    // Zoom steps: double/half, clamped to 10-800%
     zoomIn() {
-        if (this.zoomPercent < 400) {
-            this.zoomPercent = Math.min(400, Math.round(this.zoomPercent * 1.5));
+        if (this.zoomPercent < 800) {
+            const oldZoom = this.zoomPercent;
+            this.zoomPercent = Math.min(800, Math.round(this.zoomPercent * 1.5));
+            // Scale pan to keep same point centered
+            const scaleFactor = this.zoomPercent / oldZoom;
+            this.panX = Math.round(this.panX * scaleFactor);
+            this.panY = Math.round(this.panY * scaleFactor);
         }
         this.applyZoom();
     }
 
     zoomOut() {
         if (this.zoomPercent > 10) {
+            const oldZoom = this.zoomPercent;
             this.zoomPercent = Math.max(10, Math.round(this.zoomPercent / 1.5));
+            // Scale pan to keep same point centered
+            const scaleFactor = this.zoomPercent / oldZoom;
+            this.panX = Math.round(this.panX * scaleFactor);
+            this.panY = Math.round(this.panY * scaleFactor);
         }
         this.applyZoom();
     }
@@ -1771,11 +2150,17 @@ class StagVault {
 
     setSvgSize(size) {
         // Set zoom to show SVG at exact pixel size
-        const img = document.getElementById('previewImage');
-        if (!img.naturalWidth) return;
+        if (!this.fitDisplayWidth || !this.imageNaturalWidth) return;
 
-        // Calculate zoom % to show at this size
-        this.zoomPercent = Math.round((size / img.naturalWidth) * 100);
+        // Calculate what zoom % gives us this exact pixel size
+        // At 100% zoom, image is fitDisplayWidth pixels wide
+        // We want it to be 'size' pixels wide
+        // So we need to find what % of fitDisplayWidth equals 'size' pixels worth of the natural image
+        // size / naturalWidth = desired scale of natural image
+        // fitDisplayWidth / naturalWidth = scale at 100% zoom
+        // So zoom% = (size / naturalWidth) / (fitDisplayWidth / naturalWidth) * 100
+        //          = (size / fitDisplayWidth) * 100
+        this.zoomPercent = Math.round((size / this.fitDisplayWidth) * 100);
         this.panX = 0;
         this.panY = 0;
         this.applyZoom();
@@ -1783,16 +2168,26 @@ class StagVault {
 
     applyZoom() {
         const previewImage = document.getElementById('previewImage');
-        if (!previewImage) return;
+        if (!previewImage || !this.fitDisplayWidth) return;
 
+        // Calculate display size based on zoom percent
+        // 100% = fit size, 200% = 2x fit size, etc.
         const scale = this.zoomPercent / 100;
+        const displayWidth = Math.round(this.fitDisplayWidth * scale);
+        const displayHeight = Math.round(this.fitDisplayHeight * scale);
 
-        previewImage.style.width = 'auto';
-        previewImage.style.height = 'auto';
+        // Set explicit dimensions
+        previewImage.style.width = `${displayWidth}px`;
+        previewImage.style.height = `${displayHeight}px`;
         previewImage.style.maxWidth = 'none';
         previewImage.style.maxHeight = 'none';
-        previewImage.style.objectFit = 'none';
-        previewImage.style.transform = `scale(${scale}) translate(${this.panX / scale}px, ${this.panY / scale}px)`;
+        previewImage.style.objectFit = 'contain';
+
+        // Position: center the image, then apply pan offset
+        // Image is positioned at 50%/50%, so we offset by -half its size to center, then add pan
+        const offsetX = -displayWidth / 2 + this.panX;
+        const offsetY = -displayHeight / 2 + this.panY;
+        previewImage.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
         previewImage.style.cursor = this.zoomPercent > this.fitZoomPercent ? 'grab' : 'zoom-in';
 
         document.getElementById('zoomLevel').textContent = `${this.zoomPercent}%`;
@@ -1836,6 +2231,10 @@ class StagVault {
     }
 
     toggleColorControls(show) {
+        const colorPickerControls = document.getElementById('colorPickerControls');
+        if (colorPickerControls) {
+            colorPickerControls.style.display = show ? 'flex' : 'none';
+        }
         document.getElementById('primaryColorControl').style.display = show ? 'flex' : 'none';
         if (this.colorMode === 'duotone') {
             document.getElementById('secondaryColorControl').style.display = show ? 'flex' : 'none';
@@ -1849,33 +2248,134 @@ class StagVault {
 
         if (!this.colorizeEnabled || !this.originalImageUrl) {
             if (this.originalImageUrl) previewImage.src = this.originalImageUrl;
+            previewImage.style.filter = '';
             return;
         }
 
+        // For black color, no change needed (source SVG icons are already black)
+        const primary = this.hexToRgb(this.primaryColor);
+        const brightness = (primary.r + primary.g + primary.b) / 3;
+
+        if (brightness < 15 && this.colorMode === 'monochrome') {
+            // Already black, no colorization needed
+            previewImage.style.filter = '';
+            return;
+        }
+
+        // Reset filter
+        previewImage.style.filter = '';
+
+        // Check if this is an SVG URL - use XML colorization for vector sharpness
+        const isSvgUrl = this.originalImageUrl.endsWith('.svg') ||
+                         this.originalImageUrl.includes('image/svg');
+
+        console.log('Colorization:', { url: this.originalImageUrl, isSvgUrl, colorMode: this.colorMode });
+
+        if (isSvgUrl && this.colorMode !== 'duotone') {
+            // SVG XML colorization - stays vector sharp at any zoom
+            console.log('Using SVG XML colorization (vector)');
+            this.applySvgColorization(previewImage, primary);
+        } else {
+            // Canvas colorization for raster images or duotone mode
+            console.log('Using canvas colorization (raster)');
+            this.applyCanvasColorization(previewImage, primary);
+        }
+    }
+
+    async applySvgColorization(previewImage, primary) {
+        try {
+            // Fetch the original SVG (bypass cache for fresh render)
+            const response = await fetch(this.originalImageUrl, { cache: 'no-cache' });
+            if (!response.ok) throw new Error('Failed to fetch SVG');
+
+            let svgText = await response.text();
+
+            // Colorize the SVG XML
+            svgText = this.colorizeSvgWithColor(svgText, this.primaryColor);
+
+            // Revoke previous colorized blob URL if exists
+            if (this.colorizedBlobUrl) {
+                URL.revokeObjectURL(this.colorizedBlobUrl);
+            }
+
+            // Use blob URL for reliable vector rendering
+            const blob = new Blob([svgText], { type: 'image/svg+xml' });
+            this.colorizedBlobUrl = URL.createObjectURL(blob);
+            previewImage.src = this.colorizedBlobUrl;
+            console.log('SVG colorization successful, blob URL:', this.colorizedBlobUrl);
+        } catch (e) {
+            console.warn('SVG colorization failed, falling back to canvas:', e);
+            this.applyCanvasColorization(previewImage, primary);
+        }
+    }
+
+    colorizeSvgWithColor(svgText, color) {
+        // Replace currentColor
+        svgText = svgText.replace(/currentColor/gi, color);
+
+        // Replace black/dark fills (but preserve 'none')
+        svgText = svgText.replace(/fill="(?!none)(#[0-9a-fA-F]{3,6}|black|rgb\([^)]+\))"/gi, `fill="${color}"`);
+
+        // Replace strokes
+        svgText = svgText.replace(/stroke="(?!none)(#[0-9a-fA-F]{3,6}|black|currentColor|rgb\([^)]+\))"/gi, `stroke="${color}"`);
+
+        // Also handle fill/stroke as CSS in style attributes
+        svgText = svgText.replace(/style="([^"]*?)fill:\s*(#[0-9a-fA-F]{3,6}|black|currentColor)/gi,
+            (match, before) => `style="${before}fill: ${color}`);
+        svgText = svgText.replace(/style="([^"]*?)stroke:\s*(#[0-9a-fA-F]{3,6}|black|currentColor)/gi,
+            (match, before) => `style="${before}stroke: ${color}`);
+
+        return svgText;
+    }
+
+    applyCanvasColorization(previewImage, primary) {
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
-            this.canvas.width = img.naturalWidth;
-            this.canvas.height = img.naturalHeight;
-            this.ctx.drawImage(img, 0, 0);
+            try {
+                this.canvas.width = img.naturalWidth;
+                this.canvas.height = img.naturalHeight;
+                this.ctx.drawImage(img, 0, 0);
 
-            const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
-            const data = imageData.data;
-            const primary = this.hexToRgb(this.primaryColor);
-            const secondary = this.hexToRgb(this.secondaryColor);
+                const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+                const data = imageData.data;
+                const secondary = this.hexToRgb(this.secondaryColor);
 
-            if (this.colorMode === 'duotone') {
-                this.applyDuotone(data, primary, secondary);
-            } else if (this.colorMode === 'grayscale') {
-                this.applyMultiply(data, primary);
-            } else {
-                this.applyReplace(data, primary);
+                if (this.colorMode === 'duotone') {
+                    this.applyDuotone(data, primary, secondary);
+                } else if (this.colorMode === 'grayscale') {
+                    this.applyMultiplyBlack(data, primary);
+                } else {
+                    this.applyReplaceBlack(data, primary);
+                }
+
+                this.ctx.putImageData(imageData, 0, 0);
+                previewImage.src = this.canvas.toDataURL('image/png');
+            } catch (e) {
+                // CORS error - colorization not available
+                console.warn('Canvas colorization failed due to CORS:', e);
             }
-
-            this.ctx.putImageData(imageData, 0, 0);
-            previewImage.src = this.canvas.toDataURL('image/png');
+        };
+        img.onerror = () => {
+            // Image load failed
+            console.warn('Failed to load image for colorization');
         };
         img.src = this.originalImageUrl;
+    }
+
+    rgbToHue(rgb) {
+        const r = rgb.r / 255, g = rgb.g / 255, b = rgb.b / 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h = 0;
+        if (max !== min) {
+            const d = max - min;
+            switch (max) {
+                case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+                case g: h = ((b - r) / d + 2) / 6; break;
+                case b: h = ((r - g) / d + 4) / 6; break;
+            }
+        }
+        return Math.round(h * 360);
     }
 
     applyDuotone(data, primary, secondary) {
@@ -1896,22 +2396,54 @@ class StagVault {
     }
 
     applyMultiply(data, color) {
+        // For white source icons - multiply bright pixels with color
         for (let i = 0; i < data.length; i += 4) {
-            const r = data[i], g = data[i + 1], b = data[i + 2];
+            const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+            if (a < 128) continue; // Skip transparent pixels
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-            if (lum > 200) continue;
-            const factor = 1 - (lum / 200);
-            data[i] = Math.round(color.r * factor + r * (1 - factor));
-            data[i + 1] = Math.round(color.g * factor + g * (1 - factor));
-            data[i + 2] = Math.round(color.b * factor + b * (1 - factor));
+            if (lum < 50) continue; // Skip very dark pixels (background)
+            const factor = lum / 255;
+            data[i] = Math.round(color.r * factor);
+            data[i + 1] = Math.round(color.g * factor);
+            data[i + 2] = Math.round(color.b * factor);
+        }
+    }
+
+    applyMultiplyBlack(data, color) {
+        // For black source icons - multiply dark pixels with color
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+            if (a < 128) continue; // Skip transparent pixels
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            if (lum > 200) continue; // Skip very bright pixels (background)
+            // Invert the luminance for black icons
+            const factor = (255 - lum) / 255;
+            data[i] = Math.round(color.r * factor);
+            data[i + 1] = Math.round(color.g * factor);
+            data[i + 2] = Math.round(color.b * factor);
         }
     }
 
     applyReplace(data, color) {
+        // For white source icons - replace bright pixels with color
         for (let i = 0; i < data.length; i += 4) {
-            const r = data[i], g = data[i + 1], b = data[i + 2];
+            const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+            if (a < 128) continue; // Skip transparent pixels
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-            if (lum > 200) continue;
+            if (lum < 50) continue; // Skip very dark pixels (background)
+            data[i] = color.r;
+            data[i + 1] = color.g;
+            data[i + 2] = color.b;
+        }
+    }
+
+    applyReplaceBlack(data, color) {
+        // For black source icons - replace dark pixels with color
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+            if (a < 128) continue; // Skip transparent pixels
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            if (lum > 200) continue; // Skip very bright pixels (background)
             data[i] = color.r;
             data[i + 1] = color.g;
             data[i + 2] = color.b;
@@ -1963,6 +2495,18 @@ class StagVault {
         return div.innerHTML;
     }
 
+    /**
+     * Strip HTML tags from text. Used to sanitize API responses that may contain HTML.
+     * @param {string} text - Text that may contain HTML tags
+     * @returns {string} Plain text with HTML tags removed
+     */
+    stripHtml(text) {
+        if (!text || typeof text !== 'string') return text;
+        // Use DOM parser to safely strip HTML
+        const doc = new DOMParser().parseFromString(text, 'text/html');
+        return doc.body.textContent || '';
+    }
+
     // ==========================================
     // API Provider Methods
     // ==========================================
@@ -1989,15 +2533,78 @@ class StagVault {
         }
     }
 
+    saveFilterState() {
+        try {
+            const state = {
+                excludedSources: Array.from(this.excludedSources),
+                excludedLicenses: Array.from(this.excludedLicenses)
+            };
+            localStorage.setItem('stagvault_filter_state', JSON.stringify(state));
+        } catch (e) {
+            console.error('Failed to save filter state:', e);
+        }
+    }
+
+    loadFilterState() {
+        try {
+            const stored = localStorage.getItem('stagvault_filter_state');
+            if (stored) {
+                const state = JSON.parse(stored);
+                // Restore excluded sources
+                if (state.excludedSources) {
+                    this.excludedSources = new Set(state.excludedSources);
+                }
+                // Restore excluded licenses
+                if (state.excludedLicenses) {
+                    this.excludedLicenses = new Set(state.excludedLicenses);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load filter state:', e);
+        }
+    }
+
+    applyFilterStateToUI() {
+        // Apply excluded sources to UI
+        this.excludedSources.forEach(id => {
+            const item = document.querySelector(`.filter-item[data-id="${CSS.escape(id)}"][data-type="source"]`);
+            if (item) {
+                item.classList.add('excluded');
+                const checkbox = item.querySelector('input[type="checkbox"]');
+                if (checkbox) checkbox.checked = false;
+            }
+        });
+
+        // Apply excluded licenses to UI
+        this.excludedLicenses.forEach(id => {
+            const item = document.querySelector(`.filter-item[data-id="${CSS.escape(id)}"][data-type="license"]`);
+            if (item) {
+                item.classList.add('excluded');
+                const checkbox = item.querySelector('input[type="checkbox"]');
+                if (checkbox) checkbox.checked = false;
+            }
+        });
+
+        // Update parent checkboxes for source tree
+        this.updateParentCheckboxes();
+        this.updateActiveFilters();
+    }
+
     loadApiCache() {
         try {
             const stored = localStorage.getItem('stagvault_api_cache');
             if (stored) {
                 const cacheData = JSON.parse(stored);
+                // Check cache version - invalidate if version mismatch
+                if (cacheData._version !== this.API_CACHE_VERSION) {
+                    console.log('API cache version mismatch, clearing old cache');
+                    localStorage.removeItem('stagvault_api_cache');
+                    return;
+                }
                 const now = Date.now();
                 // Load only non-expired entries
                 for (const [url, entry] of Object.entries(cacheData)) {
-                    if (entry.expires > now) {
+                    if (url !== '_version' && entry.expires > now) {
                         this.apiCache.set(url, entry);
                     }
                 }
@@ -2009,7 +2616,7 @@ class StagVault {
 
     saveApiCache() {
         try {
-            const cacheObj = {};
+            const cacheObj = { _version: this.API_CACHE_VERSION };
             const now = Date.now();
             // Only save non-expired entries, limit to 100 most recent
             const entries = Array.from(this.apiCache.entries())
@@ -2159,6 +2766,36 @@ class StagVault {
         this.showToast('API keys cleared');
     }
 
+    clearAllCache() {
+        console.log('Clearing all cache...');
+
+        // Clear API response cache
+        localStorage.removeItem('stagvault_api_cache');
+        this.apiCache = {};
+
+        // Clear filter state
+        localStorage.removeItem('stagvault_filter_state');
+
+        // Clear any blob URLs we created
+        if (this.originalImageUrl && this.originalImageUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(this.originalImageUrl);
+        }
+        if (this.colorizedBlobUrl) {
+            URL.revokeObjectURL(this.colorizedBlobUrl);
+            this.colorizedBlobUrl = null;
+        }
+
+        // Reset in-memory state
+        this.excludedSources = new Set();
+        this.excludedLicenses = new Set();
+
+        // Re-apply default filter state to UI
+        this.applyFilterStateToUI();
+
+        console.log('Cache cleared successfully');
+        this.showToast('Cache cleared - refresh for full effect');
+    }
+
     parseBulkApiKeys(text) {
         if (!text || text.trim().length < 10) return;
 
@@ -2247,7 +2884,7 @@ class StagVault {
 
             const results = (data.photos || []).map(photo => ({
                 id: `pexels-${photo.id}`,
-                n: photo.alt || `Photo ${photo.id}`,
+                n: this.stripHtml(photo.alt) || `Photo ${photo.id}`,
                 s: 'pexels',
                 t: ['photo', 'pexels'],
                 p: photo.src.small,
@@ -2256,7 +2893,7 @@ class StagVault {
                 _original: photo.src.original,
                 _width: photo.width,
                 _height: photo.height,
-                _photographer: photo.photographer,
+                _photographer: this.stripHtml(photo.photographer),
                 _photographerUrl: photo.photographer_url
             }));
 
@@ -2295,9 +2932,9 @@ class StagVault {
 
             const results = (data.hits || []).map(image => ({
                 id: `pixabay-${image.id}`,
-                n: image.tags || `Image ${image.id}`,
+                n: this.stripHtml(image.tags) || `Image ${image.id}`,
                 s: 'pixabay',
-                t: (image.tags || '').split(',').map(t => t.trim()).filter(Boolean),
+                t: (this.stripHtml(image.tags) || '').split(',').map(t => t.trim()).filter(Boolean),
                 p: image.previewURL,
                 l: 'Pixabay License',
                 _apiItem: true,
@@ -2307,7 +2944,7 @@ class StagVault {
                 _height: image.webformatHeight || image.imageHeight,
                 _fullWidth: image.imageWidth,
                 _fullHeight: image.imageHeight,
-                _user: image.user,
+                _user: this.stripHtml(image.user),
                 _userUrl: `https://pixabay.com/users/${image.user}-${image.user_id}/`,
                 _pageUrl: image.pageURL
             }));
@@ -2348,16 +2985,16 @@ class StagVault {
 
             const results = (data.results || []).map(photo => ({
                 id: `unsplash-${photo.id}`,
-                n: photo.alt_description || photo.description || `Photo by ${photo.user.name}`,
+                n: this.stripHtml(photo.alt_description) || this.stripHtml(photo.description) || `Photo by ${this.stripHtml(photo.user.name)}`,
                 s: 'unsplash',
-                t: (photo.tags || []).map(t => t.title).filter(Boolean),
+                t: (photo.tags || []).map(t => this.stripHtml(t.title)).filter(Boolean),
                 p: photo.urls.small,
                 l: 'Unsplash License',
                 _apiItem: true,
                 _original: photo.urls.full,
                 _width: photo.width,
                 _height: photo.height,
-                _photographer: photo.user.name,
+                _photographer: this.stripHtml(photo.user.name),
                 _photographerUrl: photo.user.links.html,
                 _downloadUrl: photo.links.download
             }));
@@ -2409,18 +3046,29 @@ class StagVault {
                 .map(page => {
                     const info = page.imageinfo[0];
                     const meta = info.extmetadata || {};
-                    const title = page.title.replace(/^File:/, '').replace(/\.[^.]+$/, '');
+                    // Fallback title from filename (strip File: prefix and extension)
+                    const fallbackTitle = page.title.replace(/^File:/, '').replace(/\.[^.]+$/, '');
+
+                    // Strip HTML from all metadata fields that may contain it
+                    // Use fallback title only if ObjectName is empty/missing after stripping
+                    const strippedObjectName = this.stripHtml(meta.ObjectName?.value);
+                    const cleanTitle = (strippedObjectName && strippedObjectName.trim())
+                        ? strippedObjectName.trim()
+                        : this.stripHtml(fallbackTitle) || fallbackTitle;
+                    const cleanDescription = this.stripHtml(meta.ImageDescription?.value);
+                    const cleanArtist = this.stripHtml(meta.Artist?.value);
+                    const cleanLicense = this.stripHtml(meta.LicenseShortName?.value) || 'Wikimedia Commons';
 
                     // thumburl at 800px is the best balance for preview
                     // Direct info.url often has CORS issues
                     const previewUrl = info.thumburl || info.url;
                     return {
                         id: `wikimedia-${page.pageid}`,
-                        n: meta.ObjectName?.value || title,
+                        n: cleanTitle,
                         s: 'wikimedia',
                         t: ['wikimedia', 'commons'],
                         p: previewUrl,
-                        l: meta.LicenseShortName?.value || 'Wikimedia Commons',
+                        l: cleanLicense,
                         _apiItem: true,
                         _original: previewUrl,  // Use thumbnail - direct URLs have CORS issues
                         _directUrl: info.url,   // Keep original for download
@@ -2428,8 +3076,8 @@ class StagVault {
                         _height: info.thumbheight || info.height,
                         _fullWidth: info.width,
                         _fullHeight: info.height,
-                        _description: meta.ImageDescription?.value,
-                        _artist: meta.Artist?.value,
+                        _description: cleanDescription,
+                        _artist: cleanArtist,
                         _pageUrl: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(page.title.replace(/^File:/, ''))}`
                     };
                 });

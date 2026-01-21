@@ -59,6 +59,7 @@ def _process_item(task: ItemTask) -> dict:
     config = ThumbnailConfig()
     renderer = ThumbnailRenderer(
         checkerboard=config.checkerboard,
+        colors=config.colors,
         jpg_quality=task.jpg_quality,
     )
 
@@ -161,7 +162,8 @@ class ThumbnailGenerator:
         self.config = config or ThumbnailConfig()
         self.cache = ThumbnailCache(data_dir)
         self.renderer = ThumbnailRenderer(
-            self.config.checkerboard,
+            checkerboard=self.config.checkerboard,
+            colors=self.config.colors,
             jpg_quality=self.config.jpg_quality,
         )
 

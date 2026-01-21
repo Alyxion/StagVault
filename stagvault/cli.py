@@ -795,18 +795,36 @@ def static_build(ctx: click.Context, output: str, thumbnails: bool) -> None:
 @static.command("serve")
 @click.option("--dir", "-d", "directory", default="./static", help="Static files directory")
 @click.option("--port", "-p", default=8080, help="Port to bind")
+@click.option("--data-dir", default="./data", help="Data directory with SVG sources")
 @click.pass_context
-def static_serve(ctx: click.Context, directory: str, port: int) -> None:
+def static_serve(ctx: click.Context, directory: str, port: int, data_dir: str) -> None:
     """Serve static files with basic HTTP server."""
     import http.server
     import os
     import socketserver
 
     dir_path = Path(directory).resolve()
+    data_path = Path(data_dir).resolve()
+
     if not dir_path.exists():
         console.print(f"[red]Directory not found: {directory}[/red]")
         console.print("Run 'stagvault static build' first.")
         return
+
+    # Create symlink to data directory for SVG access
+    data_link = dir_path / "data"
+    if data_path.exists():
+        if data_link.is_symlink():
+            data_link.unlink()
+        elif data_link.exists():
+            console.print(f"[yellow]Warning: {data_link} exists and is not a symlink[/yellow]")
+        else:
+            try:
+                data_link.symlink_to(data_path)
+                console.print(f"[dim]Created symlink: data -> {data_path}[/dim]")
+            except OSError as e:
+                console.print(f"[yellow]Could not create data symlink: {e}[/yellow]")
+                console.print("[dim]SVGs may not load properly[/dim]")
 
     os.chdir(dir_path)
 
@@ -823,6 +841,8 @@ def static_serve(ctx: click.Context, directory: str, port: int) -> None:
     with socketserver.TCPServer(("", port), CORSHandler) as httpd:
         console.print(f"[green]Serving static files at http://localhost:{port}[/green]")
         console.print(f"  Directory: {dir_path}")
+        if data_link.exists():
+            console.print(f"  Data: {data_path}")
         console.print("  Press Ctrl+C to stop")
         try:
             httpd.serve_forever()

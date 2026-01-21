@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -12,7 +13,7 @@ import resvg_py
 from stagvault.thumbnails.insights import ImageInsights
 
 if TYPE_CHECKING:
-    from stagvault.thumbnails.config import CheckerboardConfig
+    from stagvault.thumbnails.config import CheckerboardConfig, ColorConfig
 
 
 class RenderResult:
@@ -37,11 +38,13 @@ class ThumbnailRenderer:
     def __init__(
         self,
         checkerboard: CheckerboardConfig | None = None,
+        colors: ColorConfig | None = None,
         jpg_quality: int = 85,
     ) -> None:
-        from stagvault.thumbnails.config import CheckerboardConfig
+        from stagvault.thumbnails.config import CheckerboardConfig, ColorConfig
 
         self.checkerboard = checkerboard or CheckerboardConfig()
+        self.colors = colors or ColorConfig()
         self.jpg_quality = jpg_quality
 
     def render(
@@ -122,8 +125,6 @@ class ThumbnailRenderer:
         original_height = None
         native_size = None
 
-        # Simple parsing for viewBox
-        import re
         viewbox_match = re.search(r'viewBox=["\']([^"\']+)["\']', svg_string)
         if viewbox_match:
             parts = viewbox_match.group(1).split()
@@ -135,6 +136,10 @@ class ThumbnailRenderer:
                         native_size = original_width
                 except (ValueError, IndexError):
                     pass
+
+        # Colorize SVG before rendering
+        if self.colors.enabled:
+            svg_string = self._colorize_svg(svg_string)
 
         # Use resvg to render SVG
         png_data = resvg_py.svg_to_bytes(
@@ -150,6 +155,49 @@ class ThumbnailRenderer:
             original_height=original_height,
             native_size=native_size,
         )
+
+    def _colorize_svg(self, svg_string: str) -> str:
+        """Replace colors in SVG with configured colors.
+
+        Replaces black, currentColor, and dark fills/strokes with primary color.
+        For duotone SVGs, lighter colors are replaced with secondary color.
+        """
+        color = self.colors.primary_color
+
+        # Replace currentColor
+        svg_string = re.sub(r'currentColor', color, svg_string, flags=re.IGNORECASE)
+
+        # Replace black and dark colors in fill attributes
+        # Matches: fill="black", fill="#000", fill="#000000", fill="rgb(0,0,0)"
+        svg_string = re.sub(
+            r'fill="(?:black|#(?:000(?:000)?)|rgb\s*\(\s*0\s*,\s*0\s*,\s*0\s*\))"',
+            f'fill="{color}"',
+            svg_string,
+            flags=re.IGNORECASE
+        )
+
+        # Replace black and dark colors in stroke attributes
+        svg_string = re.sub(
+            r'stroke="(?:black|#(?:000(?:000)?)|rgb\s*\(\s*0\s*,\s*0\s*,\s*0\s*\))"',
+            f'stroke="{color}"',
+            svg_string,
+            flags=re.IGNORECASE
+        )
+
+        # Replace fill/stroke that are very dark (near black)
+        # This catches #111, #222, etc.
+        svg_string = re.sub(
+            r'fill="#([0-3][0-9a-fA-F])([0-3][0-9a-fA-F])([0-3][0-9a-fA-F])"',
+            f'fill="{color}"',
+            svg_string
+        )
+        svg_string = re.sub(
+            r'stroke="#([0-3][0-9a-fA-F])([0-3][0-9a-fA-F])([0-3][0-9a-fA-F])"',
+            f'stroke="{color}"',
+            svg_string
+        )
+
+        return svg_string
 
     def _render_raster(self, data: bytes, size: int) -> RenderResult:
         """Render raster image to PIL Image at specified size."""

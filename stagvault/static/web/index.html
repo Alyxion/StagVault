@@ -20,7 +20,7 @@
             --accent: #e94560;
             --accent-hover: #ff6b6b;
             --border: #2a2a4a;
-            --sidebar-width: 260px;
+            --sidebar-width: 280px;
         }
 
         body {
@@ -105,6 +105,28 @@
 
         .filter-list.collapsed {
             display: none;
+        }
+
+        .filter-actions {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .filter-action-btn {
+            padding: 3px 8px;
+            font-size: 0.7rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .filter-action-btn:hover {
+            background: var(--border);
+            color: var(--text);
         }
 
         /* Tree structure */
@@ -204,6 +226,21 @@
         .clear-filters:hover {
             border-color: var(--accent);
             color: var(--accent);
+        }
+
+        .clear-cache-link {
+            display: block;
+            text-align: center;
+            margin-top: 8px;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            text-decoration: none;
+            opacity: 0.7;
+        }
+
+        .clear-cache-link:hover {
+            color: var(--accent);
+            opacity: 1;
         }
 
         /* Main Content */
@@ -320,8 +357,8 @@
         }
 
         .result-icon img {
-            max-width: 100%;
-            max-height: 100%;
+            width: 100%;
+            height: 100%;
             object-fit: contain;
         }
 
@@ -354,6 +391,12 @@
             gap: 3px;
             justify-content: center;
             margin-top: 6px;
+        }
+
+        .modal-info .result-tags {
+            justify-content: flex-start;
+            margin-top: 8px;
+            margin-bottom: 12px;
         }
 
         .tag {
@@ -413,11 +456,13 @@
         .modal {
             background: var(--bg-secondary);
             border-radius: 12px;
-            padding: 24px;
-            max-width: 900px;
+            padding: 20px;
+            max-width: 800px;
             width: 95%;
-            max-height: 95vh;
-            overflow-y: auto;
+            max-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
         .modal-header {
@@ -442,22 +487,41 @@
         .preview-area {
             background: var(--bg);
             border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 20px;
+            padding: 12px;
+            flex: 1;
+            display: flex;
+            gap: 16px;
+            min-height: 0;
+            overflow: hidden;
         }
 
         .preview-container {
             position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 60vh;
-            min-height: 400px;
-            max-height: 700px;
-            margin-bottom: 16px;
+            flex: 1;
+            min-width: 300px;
+            min-height: 300px;
             overflow: hidden;
             background: repeating-conic-gradient(var(--bg-secondary) 0% 25%, var(--bg) 0% 50%) 50% / 20px 20px;
             border-radius: 8px;
+        }
+
+        .preview-container .preview-image {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform-origin: center center;
+        }
+
+        .preview-sidebar {
+            width: 220px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow-y: auto;
+            overflow-x: visible;
+            position: relative;
+            z-index: 10;
         }
 
         .preview-image {
@@ -466,16 +530,24 @@
             object-fit: contain;
             user-select: none;
             -webkit-user-drag: none;
+            /* Ensure crisp rendering for SVGs and icons */
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+        }
+
+        /* When zoomed in, prefer smooth for large sizes */
+        .preview-image.smooth-render {
+            image-rendering: auto;
         }
 
         .color-controls {
             display: flex;
             flex-wrap: wrap;
-            gap: 16px;
+            gap: 8px;
             align-items: center;
-            justify-content: center;
-            padding-top: 16px;
-            border-top: 1px solid var(--border);
+            padding: 8px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
         }
 
         .zoom-control {
@@ -580,16 +652,20 @@
         }
 
         .modal-info {
-            text-align: center;
+            text-align: left;
+            flex: 1;
         }
 
         .modal-info h2 {
             margin-bottom: 8px;
+            font-size: 1rem;
         }
 
         .modal-info p {
             color: var(--text-muted);
-            margin-bottom: 16px;
+            margin-bottom: 12px;
+            font-size: 0.85rem;
+            line-height: 1.5;
         }
 
         .modal-info a {
@@ -603,22 +679,20 @@
 
         .modal-actions {
             display: flex;
-            gap: 12px;
-            justify-content: center;
-            margin-top: 20px;
+            gap: 8px;
             flex-wrap: wrap;
         }
 
         .btn {
-            padding: 10px 20px;
-            border-radius: 6px;
-            font-size: 0.9rem;
+            padding: 8px 14px;
+            border-radius: 5px;
+            font-size: 0.8rem;
             cursor: pointer;
             transition: background 0.2s, transform 0.1s;
             text-decoration: none;
             display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 5px;
         }
 
         .btn-primary {
@@ -650,21 +724,21 @@
 
         .download-menu {
             display: none;
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%);
+        }
+
+        .global-download-menu {
+            display: none;
+            position: fixed;
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 8px 0;
             min-width: 160px;
-            margin-bottom: 8px;
-            z-index: 100;
+            z-index: 10000;
             box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
 
-        .download-menu.active {
+        .global-download-menu.active {
             display: block;
         }
 
@@ -742,10 +816,10 @@
         .settings-content {
             background: var(--bg-secondary);
             border-radius: 12px;
-            padding: 24px;
-            max-width: 500px;
-            width: 100%;
-            max-height: 90vh;
+            padding: 20px;
+            max-width: 450px;
+            width: 95%;
+            max-height: 85vh;
             overflow-y: auto;
         }
 
@@ -872,8 +946,8 @@
     <!-- Sidebar Filters -->
     <aside class="sidebar">
         <div class="sidebar-header">
-            <h1>StagVault</h1>
-            <p class="subtitle">Icon Search</p>
+            <h1 id="appTitle">🦌 StagVault</h1>
+            <p class="subtitle" id="appSubtitle">Media Search</p>
             <button class="settings-btn" onclick="stagvault.openSettings()" title="API Settings">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="3"></circle>
@@ -887,6 +961,10 @@
                 <h3>Sources</h3>
                 <span class="toggle" id="sourcesToggle">-</span>
             </div>
+            <div class="filter-actions">
+                <button class="filter-action-btn" onclick="stagvault.selectAllSources()">All</button>
+                <button class="filter-action-btn" onclick="stagvault.deselectAllSources()">None</button>
+            </div>
             <div class="filter-list" id="sourcesList"></div>
         </div>
 
@@ -895,17 +973,23 @@
                 <h3>Licenses</h3>
                 <span class="toggle" id="licensesToggle">-</span>
             </div>
+            <div class="filter-actions">
+                <button class="filter-action-btn" onclick="stagvault.selectAllLicenses()">All</button>
+                <button class="filter-action-btn" onclick="stagvault.deselectAllLicenses()">None</button>
+                <button class="filter-action-btn" onclick="stagvault.selectCommercialLicenses()">Commercial</button>
+            </div>
             <div class="filter-list" id="licensesList"></div>
         </div>
 
         <button class="clear-filters" onclick="stagvault.clearAllFilters()">Clear All Filters</button>
+        <a href="#" class="clear-cache-link" onclick="stagvault.clearAllCache(); return false;">Clear Cache</a>
     </aside>
 
     <!-- Main Content -->
     <main class="main-content">
         <div class="search-box">
             <input type="text" class="search-input" id="searchInput"
-                   placeholder="Search icons by name or tag (e.g., arrow, us, home)..."
+                   placeholder="Search media by name or tag (e.g., arrow, tiger, sunset)..."
                    autocomplete="off">
         </div>
 
@@ -936,43 +1020,45 @@
                     <img id="previewImage" class="preview-image" src="" alt="">
                 </div>
 
-                <div class="color-controls">
-                    <div class="zoom-control">
-                        <button class="zoom-btn" id="zoomOut">−</button>
-                        <span class="zoom-level" id="zoomLevel">100%</span>
-                        <button class="zoom-btn" id="zoomIn">+</button>
-                        <button class="zoom-btn" id="zoomFit" title="Fit to view (0)">⊡</button>
+                <div class="preview-sidebar">
+                    <div class="modal-info" id="modalInfo"></div>
+
+                    <div class="color-controls">
+                        <div class="zoom-control">
+                            <button class="zoom-btn" id="zoomOut">−</button>
+                            <span class="zoom-level" id="zoomLevel">100%</span>
+                            <button class="zoom-btn" id="zoomIn">+</button>
+                            <button class="zoom-btn" id="zoomFit" title="Fit to view">⊡</button>
+                        </div>
+
+                        <div class="zoom-control svg-sizes" id="svgSizeControls" style="display: none;">
+                            <button class="zoom-btn svg-size-btn" data-size="64">64</button>
+                            <button class="zoom-btn svg-size-btn" data-size="128">128</button>
+                            <button class="zoom-btn svg-size-btn" data-size="256">256</button>
+                            <button class="zoom-btn svg-size-btn" data-size="512">512</button>
+                        </div>
                     </div>
 
-                    <div class="zoom-control svg-sizes" id="svgSizeControls" style="display: none;">
-                        <span style="color: var(--text-muted); font-size: 0.75rem; margin-right: 4px;">Size:</span>
-                        <button class="zoom-btn svg-size-btn" data-size="64">64</button>
-                        <button class="zoom-btn svg-size-btn" data-size="128">128</button>
-                        <button class="zoom-btn svg-size-btn" data-size="256">256</button>
-                        <button class="zoom-btn svg-size-btn" data-size="512">512</button>
-                    </div>
-
-                    <div class="zoom-control colorize-toggle">
+                    <div class="color-controls colorize-toggle">
                         <label class="toggle-switch">
                             <input type="checkbox" id="colorizeToggle">
                             <span class="toggle-slider"></span>
                         </label>
-                        <label for="colorizeToggle">Colorize</label>
+                        <label for="colorizeToggle" style="font-size: 0.8rem;">Colorize</label>
                     </div>
 
-                    <div class="color-control" id="primaryColorControl" style="display:none;">
-                        <label>Color:</label>
-                        <input type="color" class="color-picker" id="primaryColor" value="#e94560">
-                    </div>
-
-                    <div class="color-control" id="secondaryColorControl" style="display:none;">
-                        <label>Light:</label>
-                        <input type="color" class="color-picker" id="secondaryColor" value="#ffffff">
+                    <div class="color-controls" id="colorPickerControls" style="display:none;">
+                        <div class="color-control" id="primaryColorControl">
+                            <label>Color:</label>
+                            <input type="color" class="color-picker" id="primaryColor" value="#e94560">
+                        </div>
+                        <div class="color-control" id="secondaryColorControl" style="display:none;">
+                            <label>Light:</label>
+                            <input type="color" class="color-picker" id="secondaryColor" value="#ffffff">
+                        </div>
                     </div>
                 </div>
             </div>
-
-            <div class="modal-info" id="modalInfo"></div>
         </div>
     </div>
 
@@ -1072,14 +1158,36 @@
                 </div>
             </div>
 
-            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);">
-                <button class="btn btn-secondary" onclick="stagvault.clearAllApiKeys()" style="width: 100%;">
-                    Clear All API Keys
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); display: flex; gap: 8px;">
+                <button class="btn btn-secondary" onclick="stagvault.clearAllApiKeys()" style="flex: 1;">
+                    Clear API Keys
+                </button>
+                <button class="btn btn-secondary" onclick="stagvault.clearAllCache()" style="flex: 1;">
+                    Clear Cache
                 </button>
             </div>
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <!-- Global Download Menu (positioned dynamically) -->
+    <div class="global-download-menu" id="globalDownloadMenu">
+        <div class="download-menu-header">Vector</div>
+        <button class="download-menu-item" onclick="stagvault.downloadSvg()">
+            SVG (Original)
+        </button>
+        <div class="download-menu-divider"></div>
+        <div class="download-menu-header">PNG Export</div>
+        <button class="download-menu-item" onclick="stagvault.downloadPng(128)">
+            PNG 128×128
+        </button>
+        <button class="download-menu-item" onclick="stagvault.downloadPng(256)">
+            PNG 256×256
+        </button>
+        <button class="download-menu-item" onclick="stagvault.downloadPng(512)">
+            PNG 512×512
+        </button>
+    </div>
+
+    <script src="app.js?v=20260121-panfix"></script>
 </body>
 </html>
